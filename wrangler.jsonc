@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "km11-merch-store",
+  "main": "./worker/index.ts",
+  "compatibility_date": "2026-10-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    "APP_NAME": "KM 11 Merchandise",
+    "RAJAONGKIR_BASE_URL": "https://rajaongkir.komerce.id/api/v1",
+    "RAJAONGKIR_MOCK": "false"
+  }
+}
