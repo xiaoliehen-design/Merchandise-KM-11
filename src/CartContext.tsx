@@ -18,6 +18,7 @@ const KEY = 'km11_cart_items_v1'
 function same(a: CartItem, b: CartItem) {
   const customA = a.customization ? JSON.stringify(a.customization) : ''
   const customB = b.customization ? JSON.stringify(b.customization) : ''
+  if (a.bundleId || b.bundleId) return false // Paket custom dibuat per konfigurasi; jangan menggabungkan desain berbeda.
   return a.productId === b.productId && (a.color || '') === (b.color || '') && (a.size || '') === (b.size || '') && customA === customB
 }
 

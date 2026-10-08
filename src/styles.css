@@ -122,3 +122,63 @@
 .product-upload-check{flex:1 1 340px;padding:10px 13px;border:1px solid #cbdcf5;border-radius:12px;background:#f3f8ff;color:#204678;font-size:12px;line-height:1.5}
 .product-upload-check.is-error{border-color:#ffd1d6;background:#fff2f2;color:#9a2130}
 .product-upload-check ul{margin:6px 0 0;padding-left:18px}
+
+/* KM11 merchandise bundle management and customer selection */
+.bundle-admin-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.bundle-admin-section{margin-bottom:25px;padding:22px;border:1px solid #d8e6fa;border-radius:20px;background:#f8fbff}
+.bundle-admin-title,.bundle-editor-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.bundle-admin-title h2{margin:3px 0 0;font-size:21px}
+.bundle-admin-section>.muted{margin:12px 0 0}
+.bundle-editor{padding:22px;margin:16px 0}
+.bundle-editor h3{font-size:17px;margin:15px 0}
+.bundle-editor-head h3{margin:0 0 12px}
+.bundle-choose-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:15px 0}
+.bundle-product-select{display:flex;flex-direction:row;gap:12px;align-items:center;background:white;padding:12px;border:1px solid var(--line);border-radius:14px;min-width:0;cursor:pointer}
+.bundle-product-select.chosen{background:#edf5ff;border-color:#8fb7ed}
+.bundle-product-select input{width:17px;height:17px;flex:none}
+.bundle-product-select img{width:50px;height:50px;object-fit:contain;background:#f4f8ff;border-radius:9px;flex:none}
+.bundle-product-select span{display:flex;flex-direction:column;gap:3px;min-width:0}
+.bundle-product-select span b{overflow-wrap:anywhere}
+.bundle-product-select small{color:var(--muted);font-weight:500}
+.bundle-editor-summary{display:flex;gap:14px;justify-content:space-between;align-items:center;flex-wrap:wrap;margin:16px 0;padding:12px;background:#edf5ff;border-radius:12px}
+.bundle-editor-summary>label{flex-direction:row;align-items:center;gap:8px}
+.bundle-editor-summary input{width:18px;height:18px}
+.bundle-admin-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:16px}
+.bundle-admin-card{display:flex;flex-direction:column;gap:10px;padding:16px;min-width:0}
+.bundle-admin-card>div:first-child{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.bundle-admin-card p{margin:0;color:var(--muted)}
+.bundle-admin-card small{color:var(--muted);overflow-wrap:anywhere;line-height:1.6}
+.bundle-admin-card>strong{font-size:19px;color:var(--blue)}
+.bundle-admin-card .button-row{margin-top:auto;display:flex;gap:8px}
+.bundle-pill{border-radius:100px;padding:4px 9px;font-size:11px;font-weight:800;background:#e5f8ef;color:#178151}
+.bundle-pill.muted{background:#f2f3f7;color:#606d83}
+.bundle-catalog-section{margin-bottom:38px}
+.bundle-catalog-heading{margin-bottom:15px}
+.bundle-catalog-heading h3{font-size:24px;margin:5px 0}
+.bundle-catalog-visual{position:relative;background:linear-gradient(135deg,#e3eeff,#f5f8ff);aspect-ratio:1/1;padding:20px}
+.bundle-photo-collage{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,minmax(0,1fr));gap:7px;width:100%;height:100%}
+.bundle-photo-collage img{width:100%;height:100%;object-fit:contain;background:white;border-radius:13px;min-width:0;min-height:0}
+.bundle-includes{display:flex;flex-direction:column;gap:5px;flex:1}
+.bundle-includes span{display:flex;align-items:center;gap:7px;font-size:13px;color:#315175}
+.bundle-includes svg{color:var(--blue);flex:none}
+.bundle-modal{max-width:850px;width:min(100%,850px);max-height:min(90vh,1000px);overflow-y:auto}
+.bundle-config-list{display:grid;gap:14px;margin:18px 0}
+.bundle-config-product{display:grid;grid-template-columns:125px minmax(0,1fr);gap:18px;padding:16px;background:#f8fbff;border-radius:17px;border:1px solid var(--line)}
+.bundle-config-image{width:125px;height:125px;display:grid;place-items:center;background:#fff;border-radius:12px;padding:8px}
+.bundle-config-image img{width:100%;height:100%;object-fit:contain}
+.bundle-config-content h3{margin:7px 0;font-size:18px}
+.bundle-config-content p{color:var(--muted);font-size:13px;margin:0 0 10px}
+.bundle-config-variants{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.bundle-config-variants>label{flex:1;min-width:145px}
+.bundle-choice-ready{display:flex;align-items:center;gap:7px;margin-top:8px;color:#188057;font-size:12px;font-weight:750}
+.bundle-modal-bottom{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px 0 4px;border-top:1px solid var(--line)}
+.bundle-modal-bottom>div{display:flex;flex-direction:column;gap:4px}
+.bundle-modal-bottom small{color:var(--muted)}
+.bundle-modal-bottom strong{font-size:24px;color:var(--blue)}
+.cart-bundle-contents{display:grid;gap:4px;margin-top:7px}
+.cart-bundle-contents span{font-size:12px;color:#4b6482;font-weight:500}
+.bundle-single-unit{font-size:12px;color:var(--blue);font-weight:800;white-space:nowrap}
+@media(max-width:750px){.bundle-choose-grid,.bundle-admin-grid{grid-template-columns:1fr}.bundle-config-product{grid-template-columns:80px minmax(0,1fr);gap:11px;padding:11px}.bundle-config-image{width:80px;height:80px}.bundle-modal-bottom{flex-direction:column;align-items:stretch}.bundle-admin-actions{width:100%}.bundle-admin-actions button{flex:1}.bundle-admin-section{padding:15px}}
+
+/* Saat mendesain kartu dari paket, dialog kartu berada di atas dialog konfigurasi paket. */
+.bundle-card-designer-overlay{z-index:110}

@@ -11,7 +11,8 @@
     "cf:types": "wrangler types",
     "test": "node scripts/self-test.mjs",
     "create-admin": "node scripts/create-admin.mjs",
-    "test:colors": "node scripts/test-color-images.mjs"
+    "test:colors": "node scripts/test-color-images.mjs",
+    "test:bundles": "node scripts/test-bundles.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",

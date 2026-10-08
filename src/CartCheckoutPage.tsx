@@ -59,6 +59,7 @@ export default function CartCheckoutPage() {
     if (!/^\S+@\S+\.\S+$/.test(customer.email)) return 'Email tidak valid.'
     if (customer.phone.replace(/\D/g, '').length < 9) return 'Nomor HP tidak valid.'
     if (cart.items.some(i => i.customization?.type === 'emoney_card' && !i.customization?.previewDataUrl)) return 'Ada item kartu e-money yang preview-nya belum lengkap.'
+    if (cart.items.some(i => i.bundleId && (i.qty !== 1 || !i.bundleItems?.length || i.bundleItems.some(x => x.customization?.type === 'emoney_card' && !x.customization?.previewDataUrl)))) return 'Ada paket yang belum dikonfigurasi dengan lengkap.'
     if (fulfillment === 'ship') {
       if (!customer.address.trim()) return 'Alamat lengkap wajib diisi untuk pengiriman.'
       if (!destination) return 'Pilih tujuan pengiriman dari hasil pencarian RajaOngkir.'
@@ -85,7 +86,7 @@ export default function CartCheckoutPage() {
         destinationLabel: fulfillment === 'ship' ? destination?.label : null,
         shippingQuote: fulfillment === 'ship' ? quote : null,
         paymentMethodId: paymentId,
-        items: cart.items.map(i => ({ productId: i.productId, qty: i.qty, color: i.color || null, size: i.size || null, customization: i.customization || null }))
+        items: cart.items.map(i => i.bundleId ? ({ bundleId: i.bundleId, qty: 1, bundleItems: i.bundleItems?.map(part => ({ productId: part.productId, color: part.color || null, size: part.size || null, customization: part.customization || null })) }) : ({ productId: i.productId, qty: i.qty, color: i.color || null, size: i.size || null, customization: i.customization || null }))
       })
       const slotLabel = selectedPickup?.slots?.find(s => s.id === pickupSlotId)?.starts_at
       const baseReceipt = { receiptNo: created.receiptNo, total: created.total, customer: { ...customer }, items: [...cart.items], fulfillment, destination: destination?.label, shipping: quote, pickupName: selectedPickup?.name, pickupTime: slotLabel, paymentName: selectedPayment?.name, uploadToken: created.uploadToken }
@@ -135,8 +136,8 @@ export default function CartCheckoutPage() {
           <h2>Keranjang belanja</h2>
           {cart.items.length ? <div className="cart-list">{cart.items.map((item, index) => <div className="cart-item" key={`${item.productId}-${index}`}>
             <div className="cart-thumb">{item.imageUrl ? <img src={item.imageUrl} alt={item.name}/> : <img src="/brand/km11-logo-white.png" alt="Kemenkeu Mengajar 11"/>}</div>
-            <div className="cart-info"><b>{item.name}</b><small>{item.color || item.size ? <>{item.color || '-'}{item.size ? ` · ${item.size}` : ''}</> : 'Tanpa varian'}</small>{item.customization?.type === 'emoney_card' && <span>Nama kartu: {item.customization.customerName} · {item.customization.templateLabel}</span>}</div>
-            <div className="qty-control"><button onClick={() => cart.updateQty(index, item.qty - 1)}><Minus size={16}/></button><b>{item.qty}</b><button onClick={() => cart.updateQty(index, item.qty + 1)}><Plus size={16}/></button></div>
+            <div className="cart-info"><b>{item.name}</b><small>{item.bundleId ? 'Paket lengkap' : item.color || item.size ? <>{item.color || '-'}{item.size ? ` · ${item.size}` : ''}</> : 'Tanpa varian'}</small>{item.bundleItems && <div className="cart-bundle-contents">{item.bundleItems.map((part,index) => <span key={`${part.productId}-${index}`}>• {part.name}{part.color ? ` · ${part.color}` : ''}{part.size ? ` · ${part.size}` : ''}{part.customization?.type === 'emoney_card' ? ` · ${part.customization.customerName}` : ''}</span>)}</div>}{item.customization?.type === 'emoney_card' && <span>Nama kartu: {item.customization.customerName} · {item.customization.templateLabel}</span>}</div>
+            {item.bundleId ? <span className="bundle-single-unit">1 paket</span> : <div className="qty-control"><button onClick={() => cart.updateQty(index, item.qty - 1)}><Minus size={16}/></button><b>{item.qty}</b><button onClick={() => cart.updateQty(index, item.qty + 1)}><Plus size={16}/></button></div>}
             <button className="icon danger" onClick={() => cart.remove(index)}><Trash2 size={16}/></button>
           </div>)}</div> : <div className="empty compact"><div className="empty-bag">🛒</div><h3>Keranjang kosong</h3><p>Silakan kembali ke katalog untuk menambahkan produk.</p><Link className="primary" to="/">Kembali ke katalog</Link></div>}
         </div>

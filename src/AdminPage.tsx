@@ -4,7 +4,7 @@ import { BarChart3, CheckCircle2, CreditCard, Download, Edit3, KeyRound, LogOut,
 import { adminApi } from './api'
 import { readableApiError } from './apiError'
 import { resolveProductImage } from './colorImages'
-import type { Order, PaymentMethod, PickupLocation, Product } from './types'
+import type { Order, PaymentMethod, PickupLocation, Product, ProductBundle } from './types'
 import { dt, rupiah, slugify, statusLabel } from './utils'
 
 type Tab = 'orders' | 'products' | 'pickups' | 'payments' | 'settings' | 'account'
@@ -260,6 +260,84 @@ function ColorPhotoField({ color, currentUrl, file, onFileChange }: {
   </div>
 }
 
+
+function BundlesAdmin({ products, showEditor, setShowEditor, newRequest }: {
+  products: Product[]
+  showEditor: boolean
+  setShowEditor: (shown: boolean) => void
+  newRequest: number
+}) {
+  const [bundles, setBundles] = useState<ProductBundle[]>([])
+  const [form, setForm] = useState<Partial<ProductBundle>>({ name: '', description: '', price: 0, product_ids: [], active: true })
+  const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { if (newRequest > 0) { setForm({ name: '', description: '', price: 0, product_ids: [], active: true }); setError('') } }, [newRequest])
+  useEffect(() => { adminApi.bundles().then(setBundles).catch(e => setError((e as Error).message)) }, [])
+  const available = products.filter(p => p.active)
+  const selected = form.product_ids || []
+  const selectedProducts = selected.map(id => products.find(p => p.id === id)).filter((p): p is Product => !!p)
+  const regularTotal = selectedProducts.reduce((sum, p) => sum + Number(p.base_price || 0), 0)
+
+  function openNew() {
+    setForm({ name: '', description: '', price: 0, product_ids: [], active: true })
+    setError('')
+    setShowEditor(true)
+  }
+  function openEdit(bundle: ProductBundle) {
+    setForm({ ...bundle, product_ids: [...bundle.product_ids] })
+    setError('')
+    setShowEditor(true)
+    window.requestAnimationFrame(() => document.getElementById('km11-bundle-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+  async function save() {
+    if (saving) return
+    if (!form.name?.trim()) return setError('Nama paket wajib diisi.')
+    if (!selected.length) return setError('Pilih minimal satu produk untuk paket.')
+    if (selected.some(id => !available.some(p => p.id === id))) return setError('Paket hanya boleh berisi produk aktif.')
+    if (Number(form.price) < 0 || !Number.isFinite(Number(form.price))) return setError('Harga paket tidak valid.')
+    setSaving(true); setError('')
+    try {
+      await adminApi.saveBundle({ ...form, name: form.name.trim(), price: Number(form.price), product_ids: selected })
+      setBundles(await adminApi.bundles())
+      setShowEditor(false)
+      setForm({ name: '', description: '', price: 0, product_ids: [], active: true })
+    } catch (e) { setError((e as Error).message) } finally { setSaving(false) }
+  }
+  async function remove(bundle: ProductBundle) {
+    if (!confirm(`Hapus paket ${bundle.name}? Pesanan lama tetap tersimpan.`)) return
+    try { await adminApi.deleteBundle(bundle.id); setBundles(await adminApi.bundles()) }
+    catch (e) { setError((e as Error).message) }
+  }
+  return <section className="bundle-admin-section">
+    <div className="bundle-admin-title"><div><span className="eyebrow">Paket merchandise</span><h2>Kelola paket</h2></div>{!showEditor && <button type="button" className="secondary" onClick={openNew}><Plus size={16}/> Paket baru</button>}</div>
+    {error && <div className="alert error">{error}</div>}
+    {showEditor && <div className="panel bundle-editor" id="km11-bundle-editor">
+      <div className="bundle-editor-head"><h3>{form.id ? 'Edit paket' : 'Tambah paket baru'}</h3><button type="button" className="icon" onClick={() => setShowEditor(false)} aria-label="Tutup"><X size={18}/></button></div>
+      <div className="form-grid two">
+        <label>Nama paket<input value={form.name || ''} maxLength={160} onChange={e => setForm(prev => ({ ...prev, name: e.target.value }))} placeholder="Contoh: Paket Ceria KM11"/></label>
+        <label>Harga paket (Rp)<input type="number" min="0" step="1" value={form.price ?? 0} onChange={e => setForm(prev => ({ ...prev, price: Number(e.target.value) }))}/></label>
+        <label className="span-2">Deskripsi paket<textarea rows={3} value={form.description || ''} onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))} placeholder="Tuliskan isi dan keunggulan paket"/></label>
+      </div>
+      <h3>Pilih produk yang dimasukkan ke paket</h3>
+      <div className="bundle-choose-grid">{available.map(p => <label key={p.id} className={`bundle-product-select ${selected.includes(p.id) ? 'chosen' : ''}`}>
+        <input type="checkbox" checked={selected.includes(p.id)} onChange={e => setForm(prev => ({ ...prev, product_ids: e.target.checked ? [...selected, p.id] : selected.filter(id => id !== p.id) }))}/>
+        {p.image_url && <img src={resolveProductImage(p, p.colors?.[0]) || p.image_url} alt=""/>}
+        <span><b>{p.name}</b><small>{p.product_type === 'emoney_card' ? 'Desain custom saat pembelian' : `${p.colors?.length || 0} warna · ${p.sizes?.length || 0} ukuran`}</small></span>
+      </label>)}</div>
+      {!available.length && <p className="muted">Belum ada produk aktif. Aktifkan produk terlebih dahulu.</p>}
+      <div className="bundle-editor-summary"><span>{selected.length} produk dipilih · harga satuan jika terpisah {rupiah(regularTotal)}</span><label><input type="checkbox" checked={form.active !== false} onChange={e => setForm(prev => ({ ...prev, active: e.target.checked }))}/> Tampilkan paket di katalog</label></div>
+      <div className="button-row"><button type="button" className="primary" onClick={save} disabled={saving}>{saving ? 'Menyimpan...' : 'Simpan paket'}</button><button type="button" className="secondary" onClick={() => setShowEditor(false)}>Batal</button></div>
+    </div>}
+    {bundles.length ? <div className="bundle-admin-grid">{bundles.map(bundle => <div className="panel bundle-admin-card" key={bundle.id}>
+      <div><b>{bundle.name}</b><span className={bundle.active ? 'bundle-pill' : 'bundle-pill muted'}>{bundle.active ? 'Aktif' : 'Nonaktif'}</span></div>
+      <p>{bundle.description || 'Paket KM11'}</p>
+      <small>{bundle.product_ids.map(id => products.find(p => p.id === id)?.name || 'Produk tidak ditemukan').join(' · ')}</small>
+      <strong>{rupiah(bundle.price)}</strong>
+      <div className="button-row"><button type="button" className="secondary" onClick={() => openEdit(bundle)}><Edit3 size={15}/> Edit</button><button type="button" className="secondary" onClick={() => remove(bundle)}><Trash2 size={15}/> Hapus</button></div>
+    </div>)}</div> : <p className="muted">Belum ada paket. Klik Tambah paket untuk menyusun produk menjadi satu penawaran.</p>}
+  </section>
+}
+
 function ProductsAdmin() {
   const [items, setItems] = useState<Product[]>([])
   const [edit, setEdit] = useState<Partial<Product> | null>(null)
@@ -269,6 +347,8 @@ function ProductsAdmin() {
   const [sizeDraft, setSizeDraft] = useState('')
   const [specDraft, setSpecDraft] = useState('')
   const [search, setSearch] = useState('')
+  const [showBundleEditor, setShowBundleEditor] = useState(false)
+  const [newBundleRequest, setNewBundleRequest] = useState(0)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const [saveStep, setSaveStep] = useState('')
@@ -367,7 +447,8 @@ function ProductsAdmin() {
 
   const filtered = items.filter(product => `${product.name} ${product.slug} ${product.colors?.join(' ')} ${product.sizes?.join(' ')}`.toLocaleLowerCase('id-ID').includes(search.toLocaleLowerCase('id-ID')))
   return <>
-    <AdminHeader title="Produk" actions={<button className="primary" onClick={() => startEditing({ name: '', slug: '', description: '', base_price: 0, weight_grams: 50, colors: [], sizes: [], active: true, featured: false, specifications: {}, product_type: 'standard' })}><Plus size={17}/> Tambah produk</button>}/>
+    <AdminHeader title="Produk" actions={<div className="bundle-admin-actions"><button className="secondary" onClick={() => { setNewBundleRequest(n => n + 1); setShowBundleEditor(true); setEdit(null) }}><Plus size={17}/> Tambah paket</button><button className="primary" onClick={() => { setShowBundleEditor(false); startEditing({ name: '', slug: '', description: '', base_price: 0, weight_grams: 50, colors: [], sizes: [], active: true, featured: false, specifications: {}, product_type: 'standard' }) }}><Plus size={17}/> Tambah produk</button></div>}/>
+    <BundlesAdmin products={items} showEditor={showBundleEditor} setShowEditor={setShowBundleEditor} newRequest={newBundleRequest}/>
     {error && <div className="alert error" role="alert">{error}</div>}
     <div className="product-upload-diagnostic">
       <button type="button" className="secondary" onClick={checkUpload} disabled={checkingUpload}>

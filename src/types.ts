@@ -22,6 +22,28 @@ export type Product = {
   updated_at: string
 }
 
+export type ProductBundle = {
+  id: string
+  name: string
+  description: string | null
+  price: number
+  product_ids: string[]
+  active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type BundleCartComponent = {
+  productId: string
+  name: string
+  imageUrl: string | null
+  color?: string
+  size?: string
+  customization?: EmoneyCustomization | null
+  bundleId?: string
+  bundleItems?: BundleCartComponent[]
+}
+
 export type CartItem = {
   productId: string
   name: string

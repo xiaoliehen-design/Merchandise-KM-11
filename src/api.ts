@@ -1,5 +1,5 @@
 import { readableApiError } from './apiError'
-import type { CartItem, Order, PaymentMethod, PickupLocation, Product, ShippingQuote } from './types'
+import type { CartItem, Order, PaymentMethod, PickupLocation, Product, ProductBundle, ShippingQuote } from './types'
 
 const API = '/api'
 
@@ -79,6 +79,7 @@ export async function apiForm<T>(path: string, form: FormData): Promise<T> {
 
 export const catalogApi = {
   products: () => apiGet<Product[]>('/products'),
+  bundles: () => apiGet<ProductBundle[]>('/bundles'),
   pickups: () => apiGet<PickupLocation[]>('/pickup-locations'),
   payments: () => apiGet<PaymentMethod[]>('/payment-methods')
 }
@@ -116,6 +117,9 @@ export const adminApi = {
   complete: (id: string) => apiJson<Order>(`/admin/orders/${id}/complete`, 'POST', {}),
   paymentProofUrl: (id: string) => apiGet<{ url: string }>(`/admin/orders/${id}/payment-proof-url`),
   products: () => apiGet<Product[]>('/admin/products'),
+  bundles: () => apiGet<ProductBundle[]>('/admin/bundles'),
+  saveBundle: (payload: Partial<ProductBundle> & { id?: string }) => apiJson<ProductBundle>(payload.id ? `/admin/bundles/${payload.id}` : '/admin/bundles', payload.id ? 'PUT' : 'POST', payload),
+  deleteBundle: (id: string) => apiJson<{ ok: true }>(`/admin/bundles/${id}`, 'DELETE'),
   productUploadCheck: () => apiGet<{ ok: boolean; checks: Record<string, boolean>; problems: string[] }>('/admin/products/upload-check'),
   upsertProduct: (payload: Partial<Product> & { id?: string }) => apiJson<Product>(payload.id ? `/admin/products/${payload.id}` : '/admin/products', payload.id ? 'PUT' : 'POST', payload),
   uploadProductImage: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return apiForm<Product>(`/admin/products/${id}/image`, f) },

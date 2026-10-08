@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { allocateBundlePrice } from './bundlePricing'
 
 type Bindings = {
   APP_NAME: string
@@ -92,6 +93,14 @@ app.get('/api/products', async c => {
   if (error) throw error
   return c.json(data || [])
 })
+// Daftar paket aktif disajikan terpisah dan ditampilkan sebelum produk biasa.
+app.get('/api/bundles', async c => {
+  const { data, error } = await service(c.env).from('product_bundles').select('*').eq('active', true).order('created_at', { ascending: false })
+  if (error) throw error
+  c.header('Cache-Control', 'no-store')
+  return c.json(data || [])
+})
+
 app.get('/api/pickup-locations', async c => {
   const { data, error } = await service(c.env).from('pickup_locations').select('*,pickup_slots(*)').eq('active', true).order('name')
   if (error) throw error
@@ -175,56 +184,86 @@ app.post('/api/orders', async c => {
   const customer = b.customer || {}
   const fullName = cleanText(customer.fullName, 120), email = cleanText(customer.email, 160).toLowerCase(), phone = cleanText(customer.phone, 40), address = cleanText(customer.address, 1000)
   if (!fullName || !/^\S+@\S+\.\S+$/.test(email) || phone.replace(/\D/g, '').length < 9) return c.json({ error: 'Data customer belum lengkap/valid.' }, 400)
-  if (b.items.some((x: any) => !isUuid(x?.productId))) return c.json({ error: 'Produk pada keranjang tidak valid.' }, 400)
-  const ids = [...new Set(b.items.map((x: any) => String(x.productId)))]
+  const itemsInput: any[] = b.items
+  if (itemsInput.some(i => !i || typeof i !== 'object' || (i.bundleId ? !isUuid(i.bundleId) : !isUuid(i.productId)))) return c.json({ error: 'Produk pada keranjang tidak valid.' }, 400)
   const sb = service(c.env)
+  const bundleIds = [...new Set(itemsInput.filter(i => i.bundleId).map(i => String(i.bundleId)))]
+  const { data: bundles, error: bundleErr } = bundleIds.length
+    ? await sb.from('product_bundles').select('*').in('id', bundleIds).eq('active', true)
+    : { data: [] as any[], error: null }
+  if (bundleErr) throw bundleErr
+  if ((bundles || []).length !== bundleIds.length) return c.json({ error: 'Ada paket yang sudah tidak tersedia.' }, 409)
+  const byBundle = new Map<string, any>((bundles || []).map((p: any) => [p.id, p]))
+  const ids = [...new Set(itemsInput.flatMap((item: any) => item.bundleId
+    ? (byBundle.get(String(item.bundleId))?.product_ids || [])
+    : [String(item.productId)]))]
+  if (!ids.length || ids.length > 100) return c.json({ error: 'Jumlah produk tidak valid.' }, 400)
   const { data: products, error: prodErr } = await sb.from('products').select('*').in('id', ids).eq('active', true)
   if (prodErr) throw prodErr
-  if ((products || []).length !== ids.length) return c.json({ error: 'Ada produk yang sudah tidak tersedia.' }, 409)
+  if ((products || []).length !== ids.length) return c.json({ error: 'Ada produk di dalam paket yang sudah tidak tersedia.' }, 409)
   const byId = new Map((products || []).map((p: any) => [p.id, p]))
   let subtotal = 0, weight = 0
-  const preparedItems = b.items.map((i: any) => {
-    const p: any = byId.get(String(i.productId))
-    const qty = Math.floor(Number(i.qty))
-    if (!p || !Number.isFinite(qty) || qty < 1 || qty > 999) throw new Error('Jumlah item tidak valid.')
+
+  function prepareOne(p: any, i: any, unitPrice: number, group?: { id: string; name: string; index: number; total: number }) {
+    if (!p) throw new Error('Produk tidak ditemukan.')
+    const qty = group ? 1 : Math.floor(Number(i.qty))
+    if (!Number.isFinite(qty) || qty < 1 || qty > 999) throw new Error('Jumlah item tidak valid.')
     const color = i.color ? cleanText(i.color, 60) : null
     const size = i.size ? cleanText(i.size, 40) : null
-    if (p.colors?.length && (!color || !p.colors.includes(color))) throw new Error(`Warna untuk ${p.name} tidak valid.`)
-    if (p.sizes?.length && (!size || !p.sizes.includes(size))) throw new Error(`Ukuran untuk ${p.name} tidak valid.`)
-    let customization: any = null
+    if (p.colors?.length && (!color || !p.colors.includes(color))) throw new Error(`Pilih warna untuk ${p.name}.`)
+    if (p.sizes?.length && (!size || !p.sizes.includes(size))) throw new Error(`Pilih ukuran untuk ${p.name}.`)
+    let customization: any = group ? { type: 'bundle_item', bundleId: group.id, bundleName: group.name, bundleIndex: group.index, bundleSize: group.total } : null
     let previewDataUrl: string | null = null
-    if ((p.product_type || 'standard') === 'emoney_card') {
+    if (p.product_type === 'emoney_card') {
       const input = i.customization && typeof i.customization === 'object' ? i.customization : null
-      if (!input) throw new Error(`Produk ${p.name} memerlukan desain custom.`)
+      if (!input) throw new Error(`Kartu ${p.name} dalam paket harus didesain terlebih dahulu.`)
       const customerName = cleanText(input.customerName, 60)
       const templateId = cleanText(input.templateId, 40)
-      const templateLabel = cleanText(input.templateLabel, 80)
       previewDataUrl = String(input.previewDataUrl || '')
-      if (!customerName || !templateId || !previewDataUrl) throw new Error(`Desain untuk ${p.name} belum lengkap.`)
+      if (!customerName || !/^em[1-4]$/.test(templateId) || !previewDataUrl) throw new Error(`Desain ${p.name} belum lengkap.`)
       parsePngDataUrl(previewDataUrl)
       customization = {
-        type: 'emoney_card',
-        templateId,
-        templateLabel,
-        customerName,
-        nameX: Number(input.nameX || 0),
-        nameY: Number(input.nameY || 0),
-        nameSize: Number(input.nameSize || 0),
-        photoX: Number(input.photoX || 0),
-        photoY: Number(input.photoY || 0),
-        photoScale: Number(input.photoScale || 0)
+        type: 'emoney_card', templateId, templateLabel: `Template ${templateId.slice(-1)}`,
+        customerName, nameX: Number(input.nameX || 0), nameY: Number(input.nameY || 0),
+        nameSize: Number(input.nameSize || 0), photoX: Number(input.photoX || 0),
+        photoY: Number(input.photoY || 0), photoScale: Number(input.photoScale || 0),
+        ...(group ? { bundleId: group.id, bundleName: group.name, bundleIndex: group.index, bundleSize: group.total } : {})
       }
     }
-    const line = Number(p.base_price) * qty
+    const line = unitPrice * qty
     subtotal += line
     weight += Number(p.weight_grams || 0) * qty
     return {
-      row: { product_id: p.id, product_name: p.name, variant_color: color, variant_size: size, unit_price: Number(p.base_price), quantity: qty, line_total: line },
-      customization,
-      previewDataUrl
+      row: { product_id: p.id, product_name: group ? `${group.name} · ${p.name}` : p.name,
+        variant_color: color, variant_size: size, unit_price: unitPrice, quantity: qty, line_total: line },
+      customization, previewDataUrl
     }
-  })
-  const itemRows = preparedItems.map((x: any) => x.row)
+  }
+
+  const preparedItems: Array<{ row: any; customization: any; previewDataUrl: string | null }> = []
+  for (const item of itemsInput) {
+    if (!item.bundleId) {
+      const p: any = byId.get(String(item.productId))
+      preparedItems.push(prepareOne(p, item, Number(p?.base_price || 0)))
+      continue
+    }
+    const bundle = byBundle.get(String(item.bundleId))
+    const childIds: string[] = bundle.product_ids
+    const children = item.bundleItems
+    if (Number(item.qty) !== 1 || !Array.isArray(children) || children.length !== childIds.length ||
+      children.some((child: any, index: number) => child?.productId !== childIds[index])) {
+      throw new Error(`Konfigurasi paket ${bundle.name} tidak sesuai. Silakan pilih ulang paket.`)
+    }
+    // Harga selalu diambil dari database. Bagikan harga paket ke item untuk laporan penjualan admin.
+    const prices = allocateBundlePrice(Number(bundle.price), childIds.length)
+    for (let idx = 0; idx < childIds.length; idx++) {
+      const p = byId.get(childIds[idx])
+      const amount = prices[idx]
+      preparedItems.push(prepareOne(p, children[idx], amount, { id: bundle.id, name: bundle.name, index: idx + 1, total: childIds.length }))
+    }
+  }
+  if (preparedItems.length > 100) return c.json({ error: 'Jumlah item pesanan maksimal 100.' }, 400)
+  const itemRows = preparedItems.map(x => x.row)
   const fulfillmentType = b.fulfillmentType === 'pickup' ? 'pickup' : 'ship'
   let shippingCost = 0, shippingCourier: string | null = null, shippingService: string | null = null, destinationId: string | null = null, destinationLabel: string | null = null, pickupLocationId: string | null = null, pickupSlotId: string | null = null
   if (fulfillmentType === 'ship') {
@@ -253,20 +292,26 @@ app.post('/api/orders', async c => {
   const { data: created, error: createErr } = await sb.rpc('create_order_atomic', { p_order: { full_name: fullName, email, phone, address: fulfillmentType === 'ship' ? address : null, fulfillment_type: fulfillmentType, pickup_location_id: pickupLocationId, pickup_slot_id: pickupSlotId, shipping_destination_id: destinationId, shipping_destination_label: destinationLabel, shipping_courier: shippingCourier, shipping_service: shippingService, shipping_cost: shippingCost, subtotal, total, payment_method_id: pay.id, payment_method_name: pay.name, payment_upload_token_hash: paymentUploadTokenHash }, p_items: itemRows })
   if (createErr) throw createErr
   const row = Array.isArray(created) ? created[0] : created
-  if (preparedItems.some((x: any) => x.customization && x.previewDataUrl)) {
-    const { data: insertedItems, error: itemsErr } = await sb.from('order_items').select('id').eq('order_id', row.order_id).order('created_at', { ascending: true })
+  if (preparedItems.some(x => x.customization)) {
+    const { data: insertedItems, error: itemsErr } = await sb.from('order_items').select('id,checkout_line_index').eq('order_id', row.order_id).order('checkout_line_index', { ascending: true })
     if (itemsErr) throw itemsErr
+    if (!insertedItems || insertedItems.length !== preparedItems.length) throw new Error('Jumlah item pesanan tidak cocok untuk menyimpan desain paket.')
     for (let idx = 0; idx < preparedItems.length; idx++) {
       const prepared = preparedItems[idx]
-      const target = insertedItems?.[idx]
-      if (!target || !prepared.customization || !prepared.previewDataUrl) continue
-      const bytes = parsePngDataUrl(prepared.previewDataUrl)
-      const file = new File([bytes], 'design.png', { type: 'image/png' })
-      const path = randomPath(`designs/${row.order_id}`, file)
-      const { error: upErr } = await sb.storage.from('design-assets').upload(path, file, { contentType: 'image/png', upsert: false })
-      if (upErr) throw upErr
-      const { data: publicUrl } = sb.storage.from('design-assets').getPublicUrl(path)
-      const { error: updateErr } = await sb.from('order_items').update({ customization: prepared.customization, design_image_path: path, design_image_url: publicUrl.publicUrl }).eq('id', target.id)
+      if (!prepared.customization) continue
+      const patch: Record<string, unknown> = { customization: prepared.customization }
+      if (prepared.previewDataUrl) {
+        const bytes = parsePngDataUrl(prepared.previewDataUrl)
+        const file = new File([bytes], 'design.png', { type: 'image/png' })
+        const path = randomPath(`designs/${row.order_id}`, file)
+        const { error: upErr } = await sb.storage.from('design-assets').upload(path, file, { contentType: 'image/png', upsert: false })
+        if (upErr) throw upErr
+        const { data: publicUrl } = sb.storage.from('design-assets').getPublicUrl(path)
+        patch.design_image_path = path
+        patch.design_image_url = publicUrl.publicUrl
+      }
+      // Matching relies on insertion order; no other clients may insert into this new order.
+      const { error: updateErr } = await sb.from('order_items').update(patch).eq('id', insertedItems[idx].id)
       if (updateErr) throw updateErr
     }
   }
@@ -432,6 +477,56 @@ app.get('/api/admin/products/upload-check', async c => {
   c.header('Cache-Control', 'no-store')
   return c.json({ ok: Object.values(checks).every(Boolean), checks, problems })
 })
+function bundlePayload(body: any) {
+  const name = cleanText(body.name, 160)
+  const price = Number(body.price)
+  const productIds = Array.isArray(body.product_ids) ? body.product_ids.map((x: unknown) => String(x)) : []
+  if (!name) throw new Error('Nama paket wajib diisi.')
+  if (!Number.isFinite(price) || price < 0 || Math.abs(price * 100 - Math.round(price * 100)) > 0.000001) throw new Error('Harga paket tidak valid.')
+  if (productIds.length < 1 || productIds.length > 12 || new Set(productIds).size !== productIds.length || productIds.some((id: string) => !isUuid(id))) {
+    throw new Error('Pilih 1 sampai 12 produk berbeda untuk satu paket.')
+  }
+  return { name, price, product_ids: productIds, description: cleanText(body.description, 2000) || null, active: body.active !== false, updated_at: new Date().toISOString() }
+}
+
+async function validateBundleProducts(sb: SupabaseClient, ids: string[]) {
+  const { data, error } = await sb.from('products').select('id,active').in('id', ids)
+  if (error) throw error
+  if ((data || []).length !== ids.length || (data || []).some(p => !p.active)) throw new Error('Paket harus berisi produk yang tersedia dan aktif. Periksa pilihan produk.')
+}
+
+app.get('/api/admin/bundles', async c => {
+  const { data, error } = await service(c.env).from('product_bundles').select('*').order('created_at', { ascending: false })
+  if (error) throw error
+  return c.json(data || [])
+})
+app.post('/api/admin/bundles', async c => {
+  const row = bundlePayload(await c.req.json())
+  const sb = service(c.env)
+  await validateBundleProducts(sb, row.product_ids)
+  const { data, error } = await sb.from('product_bundles').insert(row).select().single()
+  if (error) throw error
+  return c.json(data, 201)
+})
+app.put('/api/admin/bundles/:id', async c => {
+  const id = c.req.param('id')
+  if (!isUuid(id)) return c.json({ error: 'ID paket tidak valid.' }, 400)
+  const row = bundlePayload(await c.req.json())
+  const sb = service(c.env)
+  await validateBundleProducts(sb, row.product_ids)
+  const { data, error } = await sb.from('product_bundles').update(row).eq('id', id).select().maybeSingle()
+  if (error) throw error
+  if (!data) return c.json({ error: 'Paket tidak ditemukan.' }, 404)
+  return c.json(data)
+})
+app.delete('/api/admin/bundles/:id', async c => {
+  const id = c.req.param('id')
+  if (!isUuid(id)) return c.json({ error: 'ID paket tidak valid.' }, 400)
+  const { error } = await service(c.env).from('product_bundles').delete().eq('id', id)
+  if (error) throw error
+  return c.json({ ok: true })
+})
+
 app.get('/api/admin/products', async c => { const { data, error } = await service(c.env).from('products').select('*').order('created_at', { ascending: false }); if (error) throw error; return c.json(data || []) })
 app.post('/api/admin/products', async c => { const b = await c.req.json(); const row = productPayload(b); const { data, error } = await service(c.env).from('products').insert(row).select().single(); if (error) throw error; return c.json(data, 201) })
 app.put('/api/admin/products/:id', async c => {
