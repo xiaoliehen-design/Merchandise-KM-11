@@ -344,7 +344,7 @@ app.post('/api/admin/login', async c => {
     if (reason === 'email_not_confirmed' || message.includes('email not confirmed')) {
       return c.json({ error: 'Email akun admin belum dikonfirmasi di Supabase Authentication. Hubungi pengelola admin.' }, 403)
     }
-    if (message.includes('invalid api key') || message.includes('jwt') || message.includes('api key') || authError.status >= 500) {
+    if (message.includes('invalid api key') || message.includes('jwt') || message.includes('api key') || (authError.status ?? 0) >= 500) {
       return c.json({ error: 'Konfigurasi Supabase Auth bermasalah. Periksa SUPABASE_ANON_KEY dan SUPABASE_URL pada Cloudflare Runtime Production.' }, 502)
     }
     return c.json({ error: 'Username atau password salah.' }, 401)
