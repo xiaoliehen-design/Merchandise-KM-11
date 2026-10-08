@@ -209,7 +209,7 @@ function BundleCustomizerModal({ bundle, products, onClose, onDesign }: {
   const [error, setError] = useState('')
   function patch(product: Product, field: 'color' | 'size', value: string) {
     setError('')
-    setChoices(prev => ({ ...prev, [product.id]: { productId: product.id, name: product.name, ...prev[product.id], imageUrl: resolveProductImage(product, field === 'color' ? value : prev[product.id]?.color || '') || null, [field]: value } }))
+    setChoices(prev => ({ ...prev, [product.id]: { ...prev[product.id], productId: product.id, name: product.name, imageUrl: resolveProductImage(product, field === 'color' ? value : prev[product.id]?.color || '') || null, [field]: value } }))
   }
   function saveDesign(product: Product, configured: CartItem) {
     setError('')

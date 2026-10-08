@@ -40,8 +40,6 @@ export type BundleCartComponent = {
   color?: string
   size?: string
   customization?: EmoneyCustomization | null
-  bundleId?: string
-  bundleItems?: BundleCartComponent[]
 }
 
 export type CartItem = {
@@ -54,6 +52,10 @@ export type CartItem = {
   size?: string
   weightGrams: number
   customization?: EmoneyCustomization | null
+  /** ID paket; hanya diisi untuk baris keranjang paket. */
+  bundleId?: string
+  /** Produk penyusun beserta varian dan desain custom masing-masing. */
+  bundleItems?: BundleCartComponent[]
 }
 
 export type PickupSlot = {
