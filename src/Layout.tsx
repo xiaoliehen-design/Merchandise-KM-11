@@ -6,9 +6,9 @@ export default function Layout() {
   const { count } = useCart()
   return <div className="app-shell">
     <header className="topbar">
-      <Link to="/" className="brand" aria-label="KM 11 Merchandise">
-        <span className="brand-mark">KM<span>11</span></span>
-        <span><strong>Merchandise</strong><small>Kemenkeu Mengajar 11</small></span>
+      <Link to="/" className="brand" aria-label="Merchandise Kemenkeu Mengajar 11">
+        <span className="brand-logo-box"><img src="/brand/km11-logo-white.png" alt="Kemenkeu Mengajar 11"/></span>
+        <span className="brand-copy"><strong>Merchandise</strong><small>Official ordering portal</small></span>
       </Link>
       <nav className="navlinks">
         <NavLink to="/" end><ShoppingBag size={18}/> Katalog</NavLink>
@@ -19,8 +19,11 @@ export default function Layout() {
     </header>
     <main><Outlet /></main>
     <footer className="footer">
-      <div><b>KM 11 Merchandise</b><span>Official ordering portal</span></div>
-      <p>Desain terinspirasi palet biru-putih merchandise Kemenkeu Mengajar 11.</p>
+      <div className="footer-brand">
+        <img src="/brand/km11-logo-blue.png" alt="Kemenkeu Mengajar 11"/>
+        <span>Portal pemesanan merchandise resmi KM11</span>
+      </div>
+      <p>Merchandise Kemenkeu Mengajar 11 • Ceria, rapi, dan mudah dipesan.</p>
     </footer>
   </div>
 }

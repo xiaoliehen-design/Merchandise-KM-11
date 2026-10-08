@@ -25,7 +25,7 @@ function ProductCard({ p, onOpenCustomizer }: { p: Product; onOpenCustomizer: (p
     <div className="product-image-wrap">
       {p.featured && <span className="featured"><Sparkles size={14}/> Pilihan KM11</span>}
       {isEmoney && <span className="featured alt"><CreditCard size={14}/> Custom e-money</span>}
-      {p.image_url ? <img className="product-image" src={p.image_url} alt={p.name}/> : <div className="product-placeholder">KM11</div>}
+      {p.image_url ? <img className="product-image" src={p.image_url} alt={p.name}/> : <div className="product-placeholder"><img src="/brand/km11-logo-white.png" alt="Kemenkeu Mengajar 11"/></div>}
     </div>
     <div className="product-body">
       <div>
@@ -181,9 +181,15 @@ export default function StorePage() {
         <p>Pilih produk, varian, dan jumlahnya. Tersedia juga katalog kartu e-money custom: customer dapat mengatur template, nama, dan foto sebelum checkout.</p>
         <a className="primary hero-btn" href="#katalog">Lihat Katalog</a>
       </div>
-      <div className="hero-art">
-        <img src="/theme/payung-biru.png" alt="Referensi desain payung KM11 biru"/>
-        <img src="/theme/payung-putih.png" alt="Referensi desain payung KM11 putih"/>
+      <div className="hero-showcase" aria-label="Pilihan merchandise Kemenkeu Mengajar 11">
+        <div className="hero-showcase-glow" aria-hidden="true"></div>
+        <div className="hero-logo-ribbon"><img src="/brand/km11-logo-white.png" alt="Kemenkeu Mengajar 11"/><span>Official Merchandise</span></div>
+        <figure className="hero-product-card hero-product-main"><img src="/hero/notebook-blue.png" alt="Notebook biru Kemenkeu Mengajar 11"/><figcaption>Notebook KM11</figcaption></figure>
+        <figure className="hero-product-card hero-product-mug"><img src="/hero/mug-blue.png" alt="Mug biru Kemenkeu Mengajar 11"/><figcaption>Mug KM11</figcaption></figure>
+        <figure className="hero-product-card hero-product-keychain"><img src="/hero/keychain.png" alt="Keychain Kemenkeu Mengajar 11"/><figcaption>Keychain</figcaption></figure>
+        <figure className="hero-product-card hero-product-slop"><img src="/hero/slop-white.png" alt="Sandal selop Kemenkeu Mengajar 11"/><figcaption>Slop KM11</figcaption></figure>
+        <span className="hero-spark hero-spark-one" aria-hidden="true"></span>
+        <span className="hero-spark hero-spark-two" aria-hidden="true"></span>
       </div>
     </section>
     <section id="katalog" className="section catalog-section">

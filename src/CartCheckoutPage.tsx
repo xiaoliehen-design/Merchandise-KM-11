@@ -134,7 +134,7 @@ export default function CartCheckoutPage() {
         <div className="panel">
           <h2>Keranjang belanja</h2>
           {cart.items.length ? <div className="cart-list">{cart.items.map((item, index) => <div className="cart-item" key={`${item.productId}-${index}`}>
-            <div className="cart-thumb">{item.imageUrl ? <img src={item.imageUrl} alt={item.name}/> : <span>KM11</span>}</div>
+            <div className="cart-thumb">{item.imageUrl ? <img src={item.imageUrl} alt={item.name}/> : <img src="/brand/km11-logo-white.png" alt="Kemenkeu Mengajar 11"/>}</div>
             <div className="cart-info"><b>{item.name}</b><small>{item.color || item.size ? <>{item.color || '-'}{item.size ? ` · ${item.size}` : ''}</> : 'Tanpa varian'}</small>{item.customization?.type === 'emoney_card' && <span>Nama kartu: {item.customization.customerName} · {item.customization.templateLabel}</span>}</div>
             <div className="qty-control"><button onClick={() => cart.updateQty(index, item.qty - 1)}><Minus size={16}/></button><b>{item.qty}</b><button onClick={() => cart.updateQty(index, item.qty + 1)}><Plus size={16}/></button></div>
             <button className="icon danger" onClick={() => cart.remove(index)}><Trash2 size={16}/></button>

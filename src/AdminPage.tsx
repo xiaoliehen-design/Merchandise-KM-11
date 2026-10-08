@@ -61,7 +61,7 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
   const [adminName, setAdminName] = useState('Admin')
   useEffect(() => { adminApi.me().then(v => setAdminName(v.display_name || v.username || 'Admin')).catch(() => undefined) }, [])
   return <section className="admin-shell">
-    <aside className="admin-sidebar"><div className="admin-title"><span className="brand-mark">KM<span>11</span></span><div><b>{adminName}</b><small>Merchandise</small></div></div>
+    <aside className="admin-sidebar"><div className="admin-title"><span className="admin-brand-logo"><img src="/brand/km11-logo-white.png" alt="Kemenkeu Mengajar 11"/></span><div><b>{adminName}</b><small>Merchandise</small></div></div>
       <button className={tab === 'orders' ? 'active' : ''} onClick={() => setTab('orders')}><Package/> Pesanan</button>
       <button className={tab === 'products' ? 'active' : ''} onClick={() => setTab('products')}><BarChart3/> Produk</button>
       <button className={tab === 'pickups' ? 'active' : ''} onClick={() => setTab('pickups')}><MapPin/> Pickup</button>
