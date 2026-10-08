@@ -182,3 +182,10 @@
 
 /* Saat mendesain kartu dari paket, dialog kartu berada di atas dialog konfigurasi paket. */
 .bundle-card-designer-overlay{z-index:110}
+/* KM11 unified invoice / airwaybill tracking */
+.track-meta { flex-wrap:wrap; }
+.track-meta span { overflow-wrap:anywhere; }
+.tracking-status-panel { padding:15px 17px; margin-bottom:16px; border:1px solid #d9e8fc; border-radius:14px; background:#f5f9ff; display:flex; flex-direction:column; gap:6px; }
+.tracking-status-panel b { color:#0b54bb; font-size:15px; }
+.tracking-status-panel p,.tracking-status-panel small { margin:0; color:#586e8f; line-height:1.5; }
+@media(max-width:620px) { .track-search { flex-wrap:wrap; } .track-search input { min-width:0; flex:1 1 100%; } .track-search button { width:100%; } }

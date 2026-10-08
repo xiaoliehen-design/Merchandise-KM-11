@@ -6,7 +6,7 @@ import { useCart } from './CartContext'
 import type { PaymentMethod, PickupLocation, ShippingQuote } from './types'
 import { dt, rupiah } from './utils'
 
-type Destination = { id: string; label: string; zip_code?: string }
+type Destination = { id: string; label: string; zip_code?: string; provider: 'rajaongkir' | 'agenwebsite'; token: string }
 
 export default function CartCheckoutPage() {
   const cart = useCart()
@@ -42,15 +42,15 @@ export default function CartCheckoutPage() {
   const selectedPickup = pickupLocations.find(p => p.id === pickupLocationId)
   const selectedPayment = payments.find(p => p.id === paymentId)
 
-  async function searchDestinations() {
+  async function searchDestinations(fallback = false) {
     if (destinationQuery.trim().length < 3) return setError('Ketik minimal 3 karakter untuk mencari kecamatan/kota tujuan.')
     setBusy(true); setError(''); setDestination(null); setQuote(null); setQuotes([])
-    try { setDestinations(await shippingApi.destinations(destinationQuery.trim())) } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+    try { setDestinations(await shippingApi.destinations(destinationQuery.trim(), fallback)) } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
 
   async function chooseDestination(d: Destination) {
     setDestination(d); setDestinations([]); setDestinationQuery(d.label); setBusy(true); setError(''); setQuote(null)
-    try { setQuotes(await shippingApi.quotes({ destinationId: d.id, weight: Math.max(1, weight) })) } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
+    try { setQuotes(await shippingApi.quotes({ destinationId: d.id, destinationToken: d.token, weight: Math.max(1, weight) })) } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
 
   function validate() {
@@ -62,7 +62,7 @@ export default function CartCheckoutPage() {
     if (cart.items.some(i => i.bundleId && (i.qty !== 1 || !i.bundleItems?.length || i.bundleItems.some(x => x.customization?.type === 'emoney_card' && !x.customization?.previewDataUrl)))) return 'Ada paket yang belum dikonfigurasi dengan lengkap.'
     if (fulfillment === 'ship') {
       if (!customer.address.trim()) return 'Alamat lengkap wajib diisi untuk pengiriman.'
-      if (!destination) return 'Pilih tujuan pengiriman dari hasil pencarian RajaOngkir.'
+      if (!destination) return 'Pilih tujuan pengiriman dari hasil pencarian.'
       if (!quote) return 'Pilih layanan pengiriman.'
     } else {
       if (!pickupLocationId) return 'Pilih tempat pengambilan.'
@@ -83,6 +83,7 @@ export default function CartCheckoutPage() {
         pickupLocationId: fulfillment === 'pickup' ? pickupLocationId : null,
         pickupSlotId: fulfillment === 'pickup' ? pickupSlotId : null,
         destinationId: fulfillment === 'ship' ? destination?.id : null,
+        destinationToken: fulfillment === 'ship' ? destination?.token : null,
         destinationLabel: fulfillment === 'ship' ? destination?.label : null,
         shippingQuote: fulfillment === 'ship' ? quote : null,
         paymentMethodId: paymentId,
@@ -156,10 +157,10 @@ export default function CartCheckoutPage() {
           <h2>Penerimaan barang</h2>
           <div className="segmented"><button className={fulfillment === 'ship' ? 'active' : ''} onClick={() => setFulfillment('ship')}><Truck size={17}/> Kirim</button><button className={fulfillment === 'pickup' ? 'active' : ''} onClick={() => setFulfillment('pickup')}><PackageCheck size={17}/> Pickup</button></div>
           {fulfillment === 'ship' ? <div className="form-grid two">
-            <label className="span-2"><span className="field-title">Cari kecamatan/kota tujuan</span><div className="search-row"><input value={destinationQuery} onChange={e => setDestinationQuery(e.target.value)} placeholder="Ketik nama kecamatan / kota tujuan"/><button className="secondary" onClick={searchDestinations} disabled={busy}><Search size={17}/> Cari</button></div></label>
-            {!!destinations.length && <div className="search-results span-2">{destinations.map(d => <button key={d.id} onClick={() => chooseDestination(d)}><MapPin size={18}/><span>{d.label}<small>{d.zip_code || 'Tanpa kode pos'}</small></span></button>)}</div>}
-            {destination && <div className="selected-box span-2"><MapPin size={18}/><div><b>{destination.label}</b><small>{destination.zip_code || 'Tanpa kode pos'}</small></div></div>}
-            {!!quotes.length && <label className="span-2"><span className="field-title">Pilih layanan pengiriman</span><div className="quote-grid">{quotes.map(q => <button type="button" key={`${q.courier}-${q.service}`} className={quote?.courier === q.courier && quote?.service === q.service ? 'selected' : ''} onClick={() => setQuote(q)}><span><b>{q.courier.toUpperCase()} · {q.service}</b><small>{q.description || q.etd || 'Layanan pengiriman'}</small></span><strong>{rupiah(q.cost)}</strong></button>)}</div></label>}
+            <label className="span-2"><span className="field-title">Cari kecamatan/kota tujuan</span><div className="search-row"><input value={destinationQuery} onChange={e => setDestinationQuery(e.target.value)} placeholder="Ketik nama kecamatan / kota tujuan"/><button className="secondary" onClick={() => searchDestinations()} disabled={busy}><Search size={17}/> Cari</button></div><button type="button" className="secondary" disabled={busy} onClick={() => searchDestinations(true)}>Cari lokasi melalui AgenWebsite</button></label>
+            {!!destinations.length && <div className="search-results span-2">{destinations.map(d => <button key={d.id} onClick={() => chooseDestination(d)}><MapPin size={18}/><span>{d.label}<small>{d.zip_code || 'Tanpa kode pos'} · {d.provider === 'agenwebsite' ? 'AgenWebsite' : 'RajaOngkir'}</small></span></button>)}</div>}
+            {destination && <div className="selected-box span-2"><MapPin size={18}/><div><b>{destination.label}</b><small>{destination.zip_code || 'Tanpa kode pos'} · {destination.provider === 'agenwebsite' ? 'AgenWebsite' : 'RajaOngkir'}</small></div></div>}
+            {!!quotes.length && <label className="span-2"><span className="field-title">Pilih layanan pengiriman</span><div className="quote-grid">{quotes.map(q => <button type="button" key={`${q.courier}-${q.service}`} className={quote?.courier === q.courier && quote?.service === q.service ? 'selected' : ''} onClick={() => setQuote(q)}><span><b>{q.courier.toUpperCase()} · {q.service}</b><small>{q.description || 'Layanan pengiriman'}{q.etd ? ` · ${q.etd}` : ''} · {q.provider === 'agenwebsite' ? 'AgenWebsite (fallback)' : q.provider === 'rajaongkir' ? 'RajaOngkir' : 'Simulasi'}</small></span><strong>{rupiah(q.cost)}</strong></button>)}</div></label>}
           </div> : <div className="form-grid two">
             <label>Lokasi pickup<select value={pickupLocationId} onChange={e => { setPickupLocationId(e.target.value); setPickupSlotId('') }}>{pickupLocations.map(p => <option value={p.id} key={p.id}>{p.name}</option>)}</select></label>
             <label>Waktu pickup<select value={pickupSlotId} onChange={e => setPickupSlotId(e.target.value)}><option value="">Pilih slot</option>{selectedPickup?.slots?.map(s => <option value={s.id} key={s.id}>{dt(s.starts_at)}</option>)}</select></label>

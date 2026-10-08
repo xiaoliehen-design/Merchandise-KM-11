@@ -111,9 +111,9 @@ function OrdersAdmin() {
   async function tracking(o: Order) {
     const number = prompt('Masukkan nomor resi:', o.tracking_number || '')
     if (!number) return
-    const courier = prompt('Kode kurir RajaOngkir (contoh: jne, jnt, sicepat):', o.tracking_courier || o.shipping_courier || 'jne')
+    const courier = prompt('Nama/kode kurir (contoh: jne, jnt, sicepat):', o.tracking_courier || o.shipping_courier || 'jne')
     if (!courier) return
-    try { await adminApi.setTracking(o.id, { trackingNumber: number, courier }); await load() } catch (e) { setError((e as Error).message) }
+    try { const saved = await adminApi.setTracking(o.id, { trackingNumber: number, courier }); await load(); if (saved.trackingRegistration && !saved.trackingRegistration.ok) setError(`Resi tersimpan, tetapi 17TRACK belum terdaftar: ${saved.trackingRegistration.message || 'Periksa TRACK17_API_KEY dan coba simpan resi kembali.'}`) } catch (e) { setError((e as Error).message) }
   }
   async function completePickup(o: Order) { if (!confirm('Tandai pesanan pickup ini selesai?')) return; try { await adminApi.complete(o.id); await load() } catch (e) { setError((e as Error).message) } }
 
@@ -633,12 +633,12 @@ function AccountAdmin({ onNameChanged }: { onNameChanged: (name: string) => void
 }
 
 function SettingsAdmin() {
-  const [settings, setSettings] = useState<Record<string, string>>({ shipping_origin_id: '', shipping_origin_label: '', shipping_couriers: 'jne:sicepat:jnt:ninja:tiki:anteraja:pos' })
+  const [settings, setSettings] = useState<Record<string, string>>({ shipping_origin_id: '', shipping_origin_label: '', shipping_couriers: 'jne:sicepat:jnt:ninja:tiki:anteraja:pos', shipping_origin_postal_code: '' })
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   useEffect(() => { adminApi.settings().then(v => setSettings(s => ({ ...s, ...v }))).catch(e => setError((e as Error).message)) }, [])
   async function save() { try { setSettings(await adminApi.saveSettings(settings)); setSaved(true); setTimeout(() => setSaved(false), 1500) } catch (e) { setError((e as Error).message) } }
-  return <><AdminHeader title="Pengaturan"/>{error && <div className="alert error">{error}</div>}<div className="panel editor"><div className="form-grid two"><label>RajaOngkir Origin ID<input value={settings.shipping_origin_id || ''} onChange={e => setSettings({ ...settings, shipping_origin_id: e.target.value })}/><small>ID lokasi asal dari RajaOngkir.</small></label><label>Label asal<input value={settings.shipping_origin_label || ''} onChange={e => setSettings({ ...settings, shipping_origin_label: e.target.value })} placeholder="Contoh: Jakarta Utara"/></label><label className="span-2">Kode kurir (pisahkan titik dua)<input value={settings.shipping_couriers || ''} onChange={e => setSettings({ ...settings, shipping_couriers: e.target.value })}/><small>Contoh: jne:sicepat:jnt:ninja:tiki:anteraja:pos</small></label></div><button className="primary" onClick={save}>{saved ? <><CheckCircle2 size={17}/> Tersimpan</> : <>Simpan pengaturan</>}</button></div></>
+  return <><AdminHeader title="Pengaturan"/>{error && <div className="alert error">{error}</div>}<div className="panel editor"><div className="form-grid two"><label>RajaOngkir Origin ID<input value={settings.shipping_origin_id || ''} onChange={e => setSettings({ ...settings, shipping_origin_id: e.target.value })}/><small>ID lokasi asal dari RajaOngkir.</small></label><label>Label asal<input value={settings.shipping_origin_label || ''} onChange={e => setSettings({ ...settings, shipping_origin_label: e.target.value })} placeholder="Contoh: Jakarta Utara"/></label><label>Kode pos asal AgenWebsite (5 digit)<input inputMode="numeric" maxLength={5} placeholder="Contoh: 14420" value={settings.shipping_origin_postal_code || ''} onChange={e => setSettings({ ...settings, shipping_origin_postal_code: e.target.value.replace(/\D/g, '').slice(0,5) })}/><small>Dipakai untuk ongkir fallback ketika RajaOngkir tidak tersedia.</small></label><label className="span-2">Kode kurir (pisahkan titik dua)<input value={settings.shipping_couriers || ''} onChange={e => setSettings({ ...settings, shipping_couriers: e.target.value })}/><small>Contoh: jne:sicepat:jnt:ninja:tiki:anteraja:pos</small></label></div><button className="primary" onClick={save}>{saved ? <><CheckCircle2 size={17}/> Tersimpan</> : <>Simpan pengaturan</>}</button></div></>
 }
 
 function AdminHeader({ title, actions }: { title: string; actions?: React.ReactNode }) {

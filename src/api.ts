@@ -90,8 +90,8 @@ export const cartApi = {
 }
 
 export const shippingApi = {
-  destinations: (q: string) => apiGet<Array<{ id: string; label: string; zip_code?: string }>>(`/shipping/destinations?q=${encodeURIComponent(q)}`),
-  quotes: (payload: { destinationId: string; weight: number }) => apiJson<ShippingQuote[]>('/shipping/quotes', 'POST', payload)
+  destinations: (q: string, fallback = false) => apiGet<Array<{ id: string; label: string; zip_code?: string; provider: 'rajaongkir' | 'agenwebsite'; token: string }>>(`/shipping/destinations?q=${encodeURIComponent(q)}${fallback ? '&provider=agenwebsite' : ''}`),
+  quotes: (payload: { destinationId: string; destinationToken: string; weight: number }) => apiJson<ShippingQuote[]>('/shipping/quotes', 'POST', payload)
 }
 
 export const orderApi = {
@@ -113,7 +113,7 @@ export const adminApi = {
   summary: () => apiGet<Record<string, number>>('/admin/summary'),
   orders: (status?: string) => apiGet<Order[]>(`/admin/orders${status ? `?status=${encodeURIComponent(status)}` : ''}`),
   verify: (id: string) => apiJson<Order>(`/admin/orders/${id}/verify`, 'POST', {}),
-  setTracking: (id: string, payload: { trackingNumber: string; courier: string }) => apiJson<Order>(`/admin/orders/${id}/tracking`, 'POST', payload),
+  setTracking: (id: string, payload: { trackingNumber: string; courier: string }) => apiJson<Order & { trackingRegistration?: { ok: boolean; message: string } }>(`/admin/orders/${id}/tracking`, 'POST', payload),
   complete: (id: string) => apiJson<Order>(`/admin/orders/${id}/complete`, 'POST', {}),
   paymentProofUrl: (id: string) => apiGet<{ url: string }>(`/admin/orders/${id}/payment-proof-url`),
   products: () => apiGet<Product[]>('/admin/products'),

@@ -1,6 +1,8 @@
 import { Hono } from 'hono'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { allocateBundlePrice } from './bundlePricing'
+import { findDestinations, getShippingQuotes, verifyDestination } from './shippingFallback'
+import { get17, register17 } from './tracking17'
 
 type Bindings = {
   APP_NAME: string
@@ -10,6 +12,10 @@ type Bindings = {
   RAJAONGKIR_API_KEY?: string
   RAJAONGKIR_BASE_URL: string
   RAJAONGKIR_MOCK?: string
+  AGENWEBSITE_API_KEY?: string
+  AGENWEBSITE_BASE_URL?: string
+  AGENWEBSITE_ORIGIN_POSTAL_CODE?: string
+  TRACK17_API_KEY?: string
   CART_SECRET: string
 }
 
@@ -23,7 +29,7 @@ function anon(env: Bindings): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
 }
 const REQUIRED_BINDINGS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'CART_SECRET'] as const
-const WORKER_REVISION = 'km11-login-diagnostics-2026-10-08-v2'
+const WORKER_REVISION = 'km11-shipping-fallback-track17-v1'
 
 // Report names only; environment values and secrets must never be returned to visitors.
 function missingBindings(env: Bindings | undefined): string[] {
@@ -138,43 +144,19 @@ async function getSettings(env: Bindings) {
   if (error) throw error
   return Object.fromEntries((data || []).map((r: any) => [r.key, r.value])) as Record<string, string>
 }
-async function rajaJson(env: Bindings, path: string, init?: RequestInit) {
-  if (!env.RAJAONGKIR_API_KEY) throw new Error('RAJAONGKIR_API_KEY belum dikonfigurasi.')
-  const base = (env.RAJAONGKIR_BASE_URL || 'https://rajaongkir.komerce.id/api/v1').replace(/\/$/, '')
-  const res = await fetch(`${base}${path}`, { ...init, headers: { ...(init?.headers || {}), key: env.RAJAONGKIR_API_KEY } })
-  const json: any = await res.json().catch(() => null)
-  if (!res.ok || !json || json.meta?.status === 'error') throw new Error(json?.meta?.message || `RajaOngkir error ${res.status}`)
-  return json
-}
-async function shippingQuotes(env: Bindings, destinationId: string, weight: number) {
-  if (isMock(env)) return [
-    { courier: 'jne', service: 'REG', description: 'Regular Service (mock)', cost: 22000, etd: '2-3 day' },
-    { courier: 'jnt', service: 'EZ', description: 'Regular Service (mock)', cost: 20500, etd: '2-4 day' },
-    { courier: 'sicepat', service: 'REG', description: 'Regular Service (mock)', cost: 21500, etd: '2-3 day' }
-  ]
-  const settings = await getSettings(env)
-  const origin = settings.shipping_origin_id
-  if (!origin) throw new Error('Admin belum mengatur RajaOngkir Origin ID.')
-  const courier = settings.shipping_couriers || 'jne:sicepat:jnt:ninja:tiki:anteraja:pos'
-  const form = new URLSearchParams({ origin, destination: destinationId, weight: String(Math.max(1, Math.ceil(weight))), courier, price: 'lowest' })
-  const json = await rajaJson(env, '/calculate/domestic-cost', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form })
-  return (Array.isArray(json.data) ? json.data : []).map((x: any) => ({ courier: String(x.code || x.name || '').toLowerCase(), service: String(x.service || ''), description: String(x.description || x.name || ''), cost: Number(x.cost || 0), etd: String(x.etd || '') })).filter((x: any) => x.courier && x.service && Number.isFinite(x.cost))
-}
+// Destination choices are HMAC-signed by the Worker; arbitrary client ZIP or destination IDs are not trusted.
 app.get('/api/shipping/destinations', async c => {
-  const q = cleanText(c.req.query('q'), 100)
+  const q = cleanText(c.req.query('q'), 80)
   if (q.length < 3) return c.json({ error: 'Ketik minimal 3 karakter.' }, 400)
-  if (isMock(c.env)) return c.json([
-    { id: 'mock-jkt-utara', label: `${q} · Jakarta Utara (MOCK)`, zip_code: '14420' },
-    { id: 'mock-jkt-pusat', label: `${q} · Jakarta Pusat (MOCK)`, zip_code: '10610' }
-  ])
-  const json = await rajaJson(c.env, `/destination/domestic-destination?search=${encodeURIComponent(q)}&limit=15&offset=0`)
-  return c.json((json.data || []).map((x: any) => ({ id: String(x.id), label: String(x.label), zip_code: x.zip_code ? String(x.zip_code) : undefined })))
+  return c.json(await findDestinations(c.env, q, fetch, c.req.query('provider') === 'agenwebsite'))
 })
 app.post('/api/shipping/quotes', async c => {
-  const b = await c.req.json()
-  const destinationId = cleanText(b.destinationId, 100), weight = Number(b.weight)
-  if (!destinationId || !Number.isFinite(weight) || weight <= 0) return c.json({ error: 'Tujuan/berat tidak valid.' }, 400)
-  return c.json(await shippingQuotes(c.env, destinationId, weight))
+  const b = await c.req.json().catch(() => ({}))
+  const id = cleanText(b.destinationId, 100), weight = Number(b.weight)
+  if (!id || !Number.isFinite(weight) || weight <= 0) return c.json({ error: 'Tujuan/berat tidak valid.' }, 400)
+  const destination = await verifyDestination(c.env, cleanText(b.destinationToken, 3000), id)
+  const settings = await getSettings(c.env)
+  return c.json(await getShippingQuotes(c.env, destination, weight, settings))
 })
 
 app.post('/api/orders', async c => {
@@ -268,11 +250,13 @@ app.post('/api/orders', async c => {
   let shippingCost = 0, shippingCourier: string | null = null, shippingService: string | null = null, destinationId: string | null = null, destinationLabel: string | null = null, pickupLocationId: string | null = null, pickupSlotId: string | null = null
   if (fulfillmentType === 'ship') {
     if (!address) return c.json({ error: 'Alamat lengkap wajib diisi.' }, 400)
-    destinationId = cleanText(b.destinationId, 100); destinationLabel = cleanText(b.destinationLabel, 300)
+    destinationId = cleanText(b.destinationId, 100)
     if (!destinationId) return c.json({ error: 'Tujuan pengiriman wajib dipilih.' }, 400)
+    const destination = await verifyDestination(c.env, cleanText(b.destinationToken, 3000), destinationId)
+    destinationLabel = destination.label
     const requested = b.shippingQuote || {}
-    const quotes = await shippingQuotes(c.env, destinationId, Math.max(1, weight))
-    const match = quotes.find((x: any) => x.courier.toLowerCase() === cleanText(requested.courier, 60).toLowerCase() && x.service.toLowerCase() === cleanText(requested.service, 60).toLowerCase())
+    const quotes = await getShippingQuotes(c.env, destination, Math.max(1, weight), await getSettings(c.env))
+    const match = quotes.find((x: any) => x.courier.toLowerCase() === cleanText(requested.courier, 60).toLowerCase() && x.service.toLowerCase() === cleanText(requested.service, 60).toLowerCase() && x.provider === requested.provider)
     if (!match) return c.json({ error: 'Layanan kirim tidak tersedia lagi. Silakan hitung ulang ongkir.' }, 409)
     shippingCost = Number(match.cost); shippingCourier = match.courier; shippingService = match.service
   } else {
@@ -335,26 +319,33 @@ app.post('/api/orders/:receipt/payment-proof', async c => {
   return c.json({ ok: true })
 })
 
-async function trackWaybill(env: Bindings, awb: string, courier: string, phone: string) {
-  if (isMock(env)) return { delivered: false, summary: { courier_code: courier, courier_name: courier.toUpperCase(), waybill_number: awb, status: 'IN TRANSIT (MOCK)' }, delivery_status: { status: 'IN TRANSIT' }, manifest: [{ manifest_description: 'Paket diterima sistem mock', manifest_date: new Date().toISOString().slice(0, 10), manifest_time: '10:00', city_name: 'Jakarta' }] }
-  const last5 = phone.replace(/\D/g, '').slice(-5)
-  const json = await rajaJson(env, `/track/waybill?awb=${encodeURIComponent(awb)}&courier=${encodeURIComponent(courier)}${last5 ? `&last_phone_number=${encodeURIComponent(last5)}` : ''}`, { method: 'POST' })
-  return json.data || null
-}
+// Public lookup returns only non-sensitive order/tracking fields. No address, phone, email, or buyer name.
+// A waybill can only be queried when it is attached to a KM11 invoice.
 app.get('/api/track/:receipt', async c => {
-  const receipt = cleanText(c.req.param('receipt'), 80).toUpperCase(); const sb = service(c.env)
-  const { data: o, error } = await sb.from('orders').select('id,receipt_no,status,fulfillment_type,pickup_location_id,pickup_slot_id,pickup_location_name,pickup_location_address,pickup_slot_starts_at,pickup_slot_ends_at,shipping_courier,shipping_service,total,tracking_number,tracking_courier,phone,created_at').eq('receipt_no', receipt).maybeSingle(); if (error) throw error
-  if (!o) return c.json({ error: 'Receipt tidak ditemukan.' }, 404)
-  let tracking: any = null, pickup: any = null
-  if (o.fulfillment_type === 'ship' && o.tracking_number && o.tracking_courier) {
-    try { tracking = await trackWaybill(c.env, o.tracking_number, o.tracking_courier, o.phone); if (tracking?.delivered && o.status !== 'completed') { await sb.from('orders').update({ status: 'completed', completed_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', o.id); await sb.from('order_status_history').insert({ order_id: o.id, status: 'completed', note: 'Otomatis selesai: RajaOngkir menyatakan delivered.' }); o.status = 'completed' } } catch (e) { tracking = { error: (e as Error).message } }
+  const keyword = cleanText(c.req.param('receipt'), 100).toUpperCase()
+  if (keyword.length < 5 || !/^[A-Z0-9-]+$/.test(keyword)) return c.json({ error: 'Masukkan nomor invoice atau nomor resi yang valid.' }, 400)
+  const sb = service(c.env)
+  const selection = 'id,receipt_no,status,fulfillment_type,pickup_location_id,pickup_slot_id,pickup_location_name,pickup_location_address,pickup_slot_starts_at,pickup_slot_ends_at,shipping_courier,shipping_service,tracking_number,tracking_courier,created_at'
+  const invoice = await sb.from('orders').select(selection).eq('receipt_no', keyword).maybeSingle()
+  if (invoice.error) throw invoice.error
+  let o: any = invoice.data
+  if (!o) {
+    // Case-insensitive exact lookup. If the same resi is attached to multiple invoices, do not reveal another customer's invoice.
+    const searched = await sb.from('orders').select(selection).ilike('tracking_number', keyword).limit(2)
+    if (searched.error) throw searched.error
+    if ((searched.data || []).length > 1) return c.json({ error: 'Nomor resi tercatat pada lebih dari satu pesanan. Hubungi admin.' }, 409)
+    o = searched.data?.[0]
   }
+  if (!o) return c.json({ error: 'Nomor invoice/resi tidak ditemukan pada pesanan KM11.' }, 404)
+  let tracking: any = null, pickup: any = null
+  if (o.fulfillment_type === 'ship' && o.tracking_number) tracking = await get17(c.env, o.tracking_number)
   if (o.fulfillment_type === 'pickup') {
     const { data: loc } = o.pickup_location_id ? await sb.from('pickup_locations').select('id,name,address').eq('id', o.pickup_location_id).maybeSingle() : { data: null }
     const { data: slot } = o.pickup_slot_id ? await sb.from('pickup_slots').select('id,starts_at,ends_at').eq('id', o.pickup_slot_id).maybeSingle() : { data: null }
     pickup = loc ? { ...loc, slot: slot || { starts_at: o.pickup_slot_starts_at, ends_at: o.pickup_slot_ends_at } } : { name: o.pickup_location_name, address: o.pickup_location_address, slot: { starts_at: o.pickup_slot_starts_at, ends_at: o.pickup_slot_ends_at } }
   }
-  return c.json({ receiptNo: o.receipt_no, status: o.status, fulfillmentType: o.fulfillment_type, total: o.total, createdAt: o.created_at, trackingNumber: o.tracking_number, trackingCourier: o.tracking_courier, shippingCourier: o.shipping_courier, shippingService: o.shipping_service, tracking, pickup })
+  c.header('Cache-Control','private, no-store')
+  return c.json({ receiptNo: o.receipt_no, status: o.status, fulfillmentType: o.fulfillment_type, createdAt: o.created_at, trackingNumber: o.tracking_number, trackingCourier: o.tracking_courier, shippingCourier: o.shipping_courier, shippingService: o.shipping_service, tracking, pickup })
 })
 
 app.post('/api/admin/login', async c => {
@@ -451,7 +442,7 @@ app.post('/api/admin/account/password', async c => {
 app.get('/api/admin/summary', async c => { const { data, error } = await service(c.env).from('orders').select('status,total'); if (error) throw error; const rows = data || []; return c.json({ total_orders: rows.length, new_orders: rows.filter((o: any) => o.status === 'new').length, verified_orders: rows.filter((o: any) => o.status === 'verified').length, shipped_orders: rows.filter((o: any) => o.status === 'shipped').length, completed_orders: rows.filter((o: any) => o.status === 'completed').length, order_value: rows.reduce((s: number, o: any) => s + Number(o.total || 0), 0) }) })
 app.get('/api/admin/orders', async c => { let q = service(c.env).from('orders').select('*,order_items(*)').order('created_at', { ascending: false }); const status = cleanText(c.req.query('status'), 30); if (status) q = q.eq('status', status); const { data, error } = await q; if (error) throw error; return c.json(data || []) })
 app.post('/api/admin/orders/:id/verify', async c => { const id = c.req.param('id'); if (!isUuid(id)) return c.json({ error: 'ID invalid.' }, 400); const sb = service(c.env); const { data: o } = await sb.from('orders').select('id,status,payment_proof_path').eq('id', id).maybeSingle(); if (!o) return c.json({ error: 'Order tidak ditemukan.' }, 404); if (!o.payment_proof_path) return c.json({ error: 'Bukti pembayaran belum diupload.' }, 409); if (o.status !== 'new') return c.json({ error: 'Order ini sudah diproses.' }, 409); const now = new Date().toISOString(); const { data, error } = await sb.from('orders').update({ status: 'verified', verified_at: now, verified_by: c.get('adminId'), updated_at: now }).eq('id', id).select().single(); if (error) throw error; await sb.from('order_status_history').insert({ order_id: id, status: 'verified', note: `Diverifikasi admin ${c.get('adminUsername')}` }); return c.json(data) })
-app.post('/api/admin/orders/:id/tracking', async c => { const id = c.req.param('id'), b = await c.req.json(); const trackingNumber = cleanText(b.trackingNumber, 100), courier = cleanText(b.courier, 40).toLowerCase(); if (!isUuid(id) || !trackingNumber || !courier) return c.json({ error: 'Data resi tidak lengkap.' }, 400); const sb = service(c.env); const { data: o } = await sb.from('orders').select('id,status,fulfillment_type').eq('id', id).maybeSingle(); if (!o) return c.json({ error: 'Order tidak ditemukan.' }, 404); if (o.fulfillment_type !== 'ship') return c.json({ error: 'Resi hanya untuk metode kirim.' }, 409); if (o.status === 'new') return c.json({ error: 'Verifikasi pembayaran terlebih dahulu.' }, 409); const now = new Date().toISOString(); const { data, error } = await sb.from('orders').update({ tracking_number: trackingNumber, tracking_courier: courier, status: o.status === 'completed' ? 'completed' : 'shipped', shipped_at: o.status === 'completed' ? undefined : now, updated_at: now }).eq('id', id).select().single(); if (error) throw error; if (o.status !== 'completed') await sb.from('order_status_history').insert({ order_id: id, status: 'shipped', note: `Resi ${courier.toUpperCase()} ${trackingNumber}` }); return c.json(data) })
+app.post('/api/admin/orders/:id/tracking', async c => { const id = c.req.param('id'), b = await c.req.json(); const trackingNumber = cleanText(b.trackingNumber, 100), courier = cleanText(b.courier, 40).toLowerCase(); if (!isUuid(id) || !trackingNumber || !courier) return c.json({ error: 'Data resi tidak lengkap.' }, 400); const sb = service(c.env); const { data: o } = await sb.from('orders').select('id,status,fulfillment_type').eq('id', id).maybeSingle(); if (!o) return c.json({ error: 'Order tidak ditemukan.' }, 404); if (o.fulfillment_type !== 'ship') return c.json({ error: 'Resi hanya untuk metode kirim.' }, 409); if (o.status === 'new') return c.json({ error: 'Verifikasi pembayaran terlebih dahulu.' }, 409); const now = new Date().toISOString(); const { data, error } = await sb.from('orders').update({ tracking_number: trackingNumber, tracking_courier: courier, status: o.status === 'completed' ? 'completed' : 'shipped', shipped_at: o.status === 'completed' ? undefined : now, updated_at: now }).eq('id', id).select().single(); if (error) throw error; if (o.status !== 'completed') await sb.from('order_status_history').insert({ order_id: id, status: 'shipped', note: `Resi ${courier.toUpperCase()} ${trackingNumber}` }); const registration = await register17(c.env, trackingNumber); return c.json({ ...data, trackingRegistration: registration }) })
 app.post('/api/admin/orders/:id/complete', async c => { const id = c.req.param('id'); const sb = service(c.env); const now = new Date().toISOString(); const { data, error } = await sb.from('orders').update({ status: 'completed', completed_at: now, updated_at: now }).eq('id', id).neq('status', 'new').select().single(); if (error) throw error; await sb.from('order_status_history').insert({ order_id: id, status: 'completed', note: `Diselesaikan admin ${c.get('adminUsername')}` }); return c.json(data) })
 app.get('/api/admin/orders/:id/payment-proof-url', async c => { const { data: o } = await service(c.env).from('orders').select('payment_proof_path').eq('id', c.req.param('id')).maybeSingle(); if (!o?.payment_proof_path) return c.json({ error: 'Bukti bayar belum tersedia.' }, 404); const { data, error } = await service(c.env).storage.from('payment-proofs').createSignedUrl(o.payment_proof_path, 3600); if (error) throw error; return c.json({ url: data.signedUrl }) })
 
@@ -670,7 +661,7 @@ app.post('/api/admin/payment-methods/:id/qr', async c => { const id = c.req.para
 app.delete('/api/admin/payment-methods/:id', async c => { const id = c.req.param('id'), sb = service(c.env); const { data: p } = await sb.from('payment_methods').select('qr_image_path').eq('id', id).maybeSingle(); const { error } = await sb.from('payment_methods').delete().eq('id', id); if (error) throw error; if (p?.qr_image_path) await sb.storage.from('payment-assets').remove([p.qr_image_path]).catch(() => undefined); return c.json({ ok: true }) })
 
 app.get('/api/admin/settings', async c => { return c.json(await getSettings(c.env)) })
-app.put('/api/admin/settings', async c => { const b = await c.req.json(); const allowed = ['shipping_origin_id', 'shipping_origin_label', 'shipping_couriers']; const rows = allowed.map(key => ({ key, value: cleanText(b[key], 500), updated_at: new Date().toISOString() })); const { error } = await service(c.env).from('app_settings').upsert(rows, { onConflict: 'key' }); if (error) throw error; return c.json(await getSettings(c.env)) })
+app.put('/api/admin/settings', async c => { const b = await c.req.json(); const allowed = ['shipping_origin_id', 'shipping_origin_label', 'shipping_couriers', 'shipping_origin_postal_code']; const rows = allowed.map(key => ({ key, value: cleanText(b[key], 500), updated_at: new Date().toISOString() })); const { error } = await service(c.env).from('app_settings').upsert(rows, { onConflict: 'key' }); if (error) throw error; return c.json(await getSettings(c.env)) })
 
 app.notFound(c => c.json({ error: 'API endpoint tidak ditemukan.' }, 404))
 app.onError((err, c) => {
