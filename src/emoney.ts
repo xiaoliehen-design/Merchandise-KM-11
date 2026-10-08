@@ -19,27 +19,15 @@ export type EmoneyCustomization = {
 }
 
 export const EMONEY_CANVAS = { width: 540, height: 855 }
-export const EMONEY_SPRITE_URL = '/emoney/front-templates.png'
-export const EMONEY_BACK_URL = '/emoney/back-template.png'
+export const EMONEY_SPRITE_URL = '/emoney/front-templates-4.png'
+export const EMONEY_BACK_URL = '/emoney/back-template-info.png'
 const CARD_BLUE = '#3967b6'
 
 export const EMONEY_TEMPLATES: EmoneyTemplate[] = [
-  { id: 'em1', label: 'Template 1', crop: { x: 167, y: 143, w: 170, h: 318 } },
-  { id: 'em2', label: 'Template 2', crop: { x: 402, y: 143, w: 170, h: 318 } },
-  { id: 'em3', label: 'Template 3', crop: { x: 637, y: 143, w: 170, h: 318 } },
-  { id: 'em4', label: 'Template 4', crop: { x: 872, y: 143, w: 170, h: 318 } },
-  { id: 'em5', label: 'Template 5', crop: { x: 167, y: 495, w: 170, h: 318 } },
-  { id: 'em6', label: 'Template 6', crop: { x: 402, y: 495, w: 170, h: 318 } },
-  { id: 'em7', label: 'Template 7', crop: { x: 637, y: 495, w: 170, h: 318 } },
-  { id: 'em8', label: 'Template 8', crop: { x: 872, y: 495, w: 170, h: 318 } },
-  { id: 'em9', label: 'Template 9', crop: { x: 167, y: 850, w: 170, h: 318 } },
-  { id: 'em10', label: 'Template 10', crop: { x: 402, y: 850, w: 170, h: 318 } },
-  { id: 'em11', label: 'Template 11', crop: { x: 637, y: 850, w: 170, h: 318 } },
-  { id: 'em12', label: 'Template 12', crop: { x: 872, y: 850, w: 170, h: 318 } },
-  { id: 'em13', label: 'Template 13', crop: { x: 167, y: 1205, w: 170, h: 318 } },
-  { id: 'em14', label: 'Template 14', crop: { x: 402, y: 1205, w: 170, h: 318 } },
-  { id: 'em15', label: 'Template 15', crop: { x: 637, y: 1205, w: 170, h: 318 } },
-  { id: 'em16', label: 'Template 16', crop: { x: 872, y: 1205, w: 170, h: 318 } }
+  { id: 'em1', label: 'Template 1', crop: { x: 20, y: 20, w: 170, h: 318 } },
+  { id: 'em2', label: 'Template 2', crop: { x: 220, y: 20, w: 170, h: 318 } },
+  { id: 'em3', label: 'Template 3', crop: { x: 20, y: 360, w: 170, h: 318 } },
+  { id: 'em4', label: 'Template 4', crop: { x: 220, y: 360, w: 170, h: 318 } }
 ]
 
 const imageCache = new Map<string, Promise<HTMLImageElement>>()

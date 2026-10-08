@@ -25,3 +25,71 @@
 .admin-brand-logo{width:110px;height:40px;display:grid;place-items:center;flex:none}.admin-brand-logo img{width:100%;height:100%;object-fit:contain}.admin-title{align-items:flex-start;flex-direction:column;gap:7px;padding-bottom:18px}.admin-title>div{display:flex;flex-direction:column}.admin-title>div b{font-size:13px}.admin-title>div small{font-size:10px}
 @media(max-width:900px){.brand-logo-box{width:108px;height:43px}.hero-photo{max-width:680px;margin-inline:auto}.admin-title{display:none}}
 @media(max-width:640px){.brand-copy{display:none!important}.brand-logo-box{width:100px;height:40px;padding:6px 8px}.topbar{gap:8px}.hero-photo{margin-top:8px;border-radius:20px}.footer-brand img{width:118px}}
+
+
+/* KM11 admin product editor, chip variants and compact, safe image cards */
+.admin-products-toolbar { display:flex; align-items:center; justify-content:space-between; gap:14px; margin:0 0 18px; }
+.admin-products-toolbar .search-box { max-width:440px; min-width:0; background:#fff; padding:0 12px; min-height:46px; }
+.admin-products-toolbar .search-box input { width:100%; min-width:0; }
+.admin-products-total { font-size:13px; color:var(--muted); white-space:nowrap; }
+.product-editor { padding:0; overflow:hidden; scroll-margin-top:90px; }
+.product-editor-top { padding:22px 24px; display:flex; justify-content:space-between; align-items:center; gap:12px; border-bottom:1px solid var(--line); }
+.product-editor-top h2 { margin:5px 0 0; font-size:23px; }
+.product-editor-close { width:38px; height:38px; display:grid; place-items:center; border:1px solid var(--line); background:#fff; border-radius:11px; color:var(--ink); }
+.product-editor-section { padding:22px 24px; border-bottom:1px solid var(--line); }
+.product-editor-section h3 { font-size:16px; margin:0 0 18px; color:#1b3458; }
+.product-editor .form-grid { gap:18px; }
+.variant-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:18px; align-items:start; }
+.variant-editor { border:1px solid #dce7f8; border-radius:16px; background:#f9fbff; padding:15px; min-width:0; }
+.variant-editor-head { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:12px; font-size:14px; }
+.variant-editor-head span { font-size:12px; font-weight:600; color:var(--muted); }
+.variant-entry { display:flex; align-items:stretch; gap:8px; min-width:0; }
+.variant-entry input { flex:1; width:100%; min-width:0; margin:0; background:#fff; }
+.variant-entry button { flex:none; margin:0; padding:10px 13px; }
+.variant-entry button:disabled { opacity:.55; cursor:not-allowed; }
+.variant-chips { display:flex; flex-wrap:wrap; align-items:center; gap:7px; min-height:36px; margin-top:12px; }
+.variant-chip { display:inline-flex; gap:7px; align-items:center; border-radius:999px; background:#e7f0ff; color:#124e9a; font-weight:700; font-size:12px; padding:5px 7px 5px 11px; max-width:100%; }
+.variant-chip>span { overflow-wrap:anywhere; }
+.variant-chip button { display:grid; place-items:center; border:0; background:#fff; border-radius:50%; width:21px; height:21px; color:#164c8c; padding:0; flex:none; }
+.variant-chip button:hover { background:#ffdfe2; color:#b52832; }
+.variant-empty { font-size:12px; color:var(--muted); }
+.product-editor-flags { display:flex; flex-wrap:wrap; gap:14px; align-items:center; padding:16px 0; }
+.product-editor-flags label { display:inline-flex!important; flex-direction:row!important; gap:9px; align-items:center; }
+.product-editor-actions { justify-content:flex-end; padding:20px 24px; margin:0!important; }
+.admin-card-grid { grid-template-columns:repeat(3,minmax(0,1fr)); align-items:stretch; gap:18px; }
+.admin-product-card { min-width:0; overflow:hidden; display:flex; flex-direction:column; gap:0; padding:0; border-radius:20px; }
+.admin-product-img { display:flex; align-items:center; justify-content:center; width:100%; height:210px; min-height:0; padding:16px; background:#f3f7fe; overflow:hidden; border-radius:0; color:#97aecf; }
+.admin-product-img img { display:block; width:100%; height:100%; min-width:0; min-height:0; max-width:100%; max-height:100%; object-fit:contain; object-position:center; }
+.admin-product-info { padding:17px 18px 16px; flex:1; min-width:0; }
+.admin-product-info h3 { font-size:17px; line-height:1.35; font-weight:800; color:var(--ink); overflow-wrap:anywhere; margin:12px 0 9px; }
+.admin-product-price { display:block; font-size:20px; color:#0659cd; line-height:1.25; }
+.admin-product-flags { display:flex; flex-wrap:wrap; align-items:center; gap:7px; }
+.admin-product-status,.admin-product-type { display:inline-flex; font-size:11px; font-weight:800; padding:5px 9px; border-radius:8px; }
+.admin-product-status.is-active { color:#18744b; background:#e5f8ef; }
+.admin-product-status.is-inactive { color:#7b4a18; background:#fff3e2; }
+.admin-product-type { color:#37608b; background:#eaf2fd; }
+.admin-product-weight { color:var(--muted); font-size:12px; margin:8px 0 11px; }
+.admin-product-variants { display:grid; gap:9px; border-top:1px solid var(--line); padding-top:12px; }
+.admin-product-variants>div { display:grid; grid-template-columns:54px minmax(0,1fr); gap:7px; font-size:12px; line-height:1.4; }
+.admin-product-variants b { color:#3b5474; }
+.admin-product-variants span { color:var(--muted); overflow-wrap:anywhere; }
+.admin-product-actions { display:flex; margin-top:auto; gap:8px; padding:13px 18px 16px; border-top:1px solid var(--line); }
+.admin-product-actions button { justify-content:center; min-height:35px; flex:1; font-size:12px; }
+@media (max-width:1200px) { .admin-card-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:700px) { .variant-grid { grid-template-columns:1fr; } .admin-card-grid { grid-template-columns:1fr; } .product-editor-top,.product-editor-section { padding:18px; } .product-editor-actions { padding:16px 18px; } .admin-products-toolbar { flex-direction:column; align-items:stretch; } .admin-products-toolbar .search-box { max-width:none; } .admin-products-total { white-space:normal; } .variant-entry { flex-wrap:wrap; } .variant-entry input { flex-basis:100%; } .variant-add { width:100%; justify-content:center; } .admin-product-img { height:230px; } }
+
+/* Keep product state controls compact rather than stretching checkbox inputs. */
+.product-editor-flags input[type="checkbox"]{width:17px;height:17px;margin:0;flex:none;accent-color:var(--blue)}
+
+/* KM11 e-money template reduction to 4 + back design info */
+.template-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
+.template-thumb{padding:10px;min-height:100%;justify-content:flex-start}
+.template-thumb canvas{background:#f5f8ff}
+.emoney-back-panel{margin-top:16px;border:1px solid var(--line);border-radius:18px;background:#fbfdff;padding:14px}
+.emoney-back-panel-head{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.emoney-back-panel-head b{font-size:15px;color:#17345f}
+.emoney-back-panel-head span{display:inline-flex;align-items:center;padding:5px 9px;border-radius:999px;background:#edf4ff;color:var(--blue);font-size:11px;font-weight:800}
+.emoney-back-note{margin-top:0;align-items:flex-start}
+.emoney-back-note img{width:140px;height:auto;aspect-ratio:54/85;object-fit:contain;border-radius:14px;background:#fff;padding:4px;border:1px solid #e5edf9;flex:none}
+.emoney-back-note p{margin:0;color:var(--muted);line-height:1.6}
+@media(max-width:700px){.emoney-back-note{flex-direction:column}.emoney-back-note img{width:min(100%,220px)}}

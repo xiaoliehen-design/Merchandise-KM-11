@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { BarChart3, CheckCircle2, CreditCard, Download, Edit3, KeyRound, LogOut, MapPin, Package, Plus, RefreshCw, Search, Settings, ShieldCheck, Trash2, Truck, UserCog } from 'lucide-react'
+import { BarChart3, CheckCircle2, CreditCard, Download, Edit3, KeyRound, LogOut, MapPin, Package, Plus, RefreshCw, Search, Settings, ShieldCheck, Trash2, Truck, UserCog, X } from 'lucide-react'
 import { adminApi } from './api'
 import type { Order, PaymentMethod, PickupLocation, Product } from './types'
 import { dt, rupiah, slugify, statusLabel } from './utils'
@@ -43,7 +43,6 @@ export default function AdminPage() {
     <div className="admin-lock"><ShieldCheck size={34}/></div>
     <span className="eyebrow">Admin only</span>
     <h1>Login dashboard</h1>
-    <p>Tidak ada registrasi publik. Akun admin dibuat dan dikelola melalui Supabase.</p>
     {error && <div className="alert error">{error}</div>}
     <label>Username<input autoComplete="username" value={username} onChange={e => setUsername(e.target.value)}/></label>
     <label>Password<input autoComplete="current-password" type="password" value={password} onChange={e => setPassword(e.target.value)}/></label>
@@ -159,7 +158,7 @@ function OrdersAdmin() {
   }
 
   return <>
-    <AdminHeader title="Pesanan" text="Verifikasi pembayaran, input resi, pantau status, dan ekspor Excel. Untuk item e-money custom, admin bisa membuka file desain PNG hasil preview customer." actions={<><button className="secondary" onClick={load}><RefreshCw size={17}/> Refresh</button><button className="primary" onClick={exportExcel}><Download size={17}/> Export Excel</button></>}/>
+    <AdminHeader title="Pesanan" actions={<><button className="secondary" onClick={load}><RefreshCw size={17}/> Refresh</button><button className="primary" onClick={exportExcel}><Download size={17}/> Export Excel</button></>}/>
     <div className="stats-grid"><Stat label="Total" value={summary.total_orders || 0}/><Stat label="Baru" value={summary.new_orders || 0}/><Stat label="Terverifikasi" value={summary.verified_orders || 0}/><Stat label="Dikirim" value={summary.shipped_orders || 0}/><Stat label="Selesai" value={summary.completed_orders || 0}/><Stat label="Nilai order" value={rupiah(summary.order_value || 0)}/></div>
     {error && <div className="alert error">{error}</div>}
     <div className="admin-toolbar panel"><div className="search-box"><Search size={17}/><input placeholder="Cari receipt, nama, email, HP..." value={q} onChange={e => setQ(e.target.value)}/></div><select value={status} onChange={e => setStatus(e.target.value)}><option value="">Semua status</option><option value="new">Baru</option><option value="verified">Terverifikasi</option><option value="shipped">Dikirim</option><option value="completed">Selesai</option></select></div>
@@ -167,50 +166,173 @@ function OrdersAdmin() {
   </>
 }
 
+function distinctVariants(values: string[]): string[] {
+  const seen = new Set<string>()
+  return values.map(v => v.trim()).filter(v => {
+    const key = v.toLocaleLowerCase('id-ID')
+    if (!key || seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}
+
+function addVariants(values: string[], draft: string): string[] {
+  // Enter / button is the primary input method; pasted comma, newlines and semicolons also work.
+  return distinctVariants([...values, ...draft.split(/[,;\n]+/)])
+}
+
+function parseSpecifications(input: string): Record<string, string> {
+  const result: Record<string, string> = {}
+  for (const line of input.split(/\r?\n/)) {
+    const index = line.indexOf('=')
+    if (index < 1) continue
+    const name = line.slice(0, index).trim()
+    const value = line.slice(index + 1).trim()
+    if (name && value) result[name] = value
+  }
+  return result
+}
+
+function VariantEditor({ label, values, draft, onDraftChange, onChange, placeholder }: {
+  label: string
+  values: string[]
+  draft: string
+  onDraftChange: (value: string) => void
+  onChange: (values: string[]) => void
+  placeholder: string
+}) {
+  function add() {
+    if (!draft.trim()) return
+    onChange(addVariants(values, draft))
+    onDraftChange('')
+  }
+  return <div className="variant-editor">
+    <div className="variant-editor-head"><strong>{label}</strong><span>{values.length} pilihan</span></div>
+    <div className="variant-entry">
+      <input
+        type="text"
+        aria-label={`Tambah ${label.toLowerCase()}`}
+        placeholder={placeholder}
+        value={draft}
+        onChange={e => onDraftChange(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+      />
+      <button type="button" className="secondary variant-add" onClick={add} disabled={!draft.trim()}><Plus size={17}/> Tambah</button>
+    </div>
+    <div className="variant-chips" aria-label={`${label} tersimpan`}>
+      {values.length ? values.map(value => <span className="variant-chip" key={value}>
+        <span>{value}</span>
+        <button type="button" aria-label={`Hapus ${label.toLowerCase()} ${value}`} onClick={() => onChange(values.filter(v => v !== value))}><X size={14}/></button>
+      </span>) : <span className="variant-empty">Belum ada pilihan</span>}
+    </div>
+  </div>
+}
+
 function ProductsAdmin() {
   const [items, setItems] = useState<Product[]>([])
   const [edit, setEdit] = useState<Partial<Product> | null>(null)
   const [image, setImage] = useState<File | null>(null)
+  const [colorDraft, setColorDraft] = useState('')
+  const [sizeDraft, setSizeDraft] = useState('')
+  const [specDraft, setSpecDraft] = useState('')
+  const [search, setSearch] = useState('')
   const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
 
-  async function load() { try { setItems(await adminApi.products()) } catch (e) { setError((e as Error).message) } }
+  async function load() {
+    try { setItems(await adminApi.products()) } catch (e) { setError((e as Error).message) }
+  }
   useEffect(() => { load() }, [])
 
+  function startEditing(product: Partial<Product>) {
+    setEdit({ ...product, colors: [...(product.colors || [])], sizes: [...(product.sizes || [])] })
+    setImage(null)
+    setColorDraft('')
+    setSizeDraft('')
+    setSpecDraft(Object.entries(product.specifications || {}).map(([k, v]) => `${k}=${v}`).join('\n'))
+    setError('')
+    window.requestAnimationFrame(() => document.getElementById('km11-product-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+
   async function save() {
-    if (!edit) return
+    if (!edit || saving) return
+    if (!edit.name?.trim()) { setError('Nama produk wajib diisi.'); return }
+    setSaving(true)
+    setError('')
     try {
       const saved = await adminApi.upsertProduct({
         ...edit,
-        slug: edit.slug || slugify(edit.name || ''),
-        colors: edit.product_type === 'emoney_card' ? [] : (edit.colors || []),
-        sizes: edit.product_type === 'emoney_card' ? [] : (edit.sizes || [])
+        name: edit.name.trim(),
+        slug: edit.slug?.trim() || slugify(edit.name),
+        specifications: parseSpecifications(specDraft),
+        colors: edit.product_type === 'emoney_card' ? [] : addVariants(edit.colors || [], colorDraft),
+        sizes: edit.product_type === 'emoney_card' ? [] : addVariants(edit.sizes || [], sizeDraft)
       })
       if (image) await adminApi.uploadProductImage(saved.id, image)
       setEdit(null)
       setImage(null)
+      setColorDraft('')
+      setSizeDraft('')
       await load()
     } catch (e) { setError((e as Error).message) }
+    finally { setSaving(false) }
   }
 
-  async function remove(p: Product) { if (!confirm(`Hapus produk ${p.name}?`)) return; try { await adminApi.deleteProduct(p.id); await load() } catch (e) { setError((e as Error).message) } }
+  async function remove(product: Product) {
+    if (!confirm(`Hapus produk ${product.name}?`)) return
+    try { await adminApi.deleteProduct(product.id); await load() }
+    catch (e) { setError((e as Error).message) }
+  }
 
+  const filtered = items.filter(product => `${product.name} ${product.slug} ${product.colors?.join(' ')} ${product.sizes?.join(' ')}`.toLocaleLowerCase('id-ID').includes(search.toLocaleLowerCase('id-ID')))
   return <>
-    <AdminHeader title="Produk" text="Admin dapat menentukan harga, spesifikasi, warna, ukuran, dan status produk. Untuk produk e-money card, customer akan mendapat fitur personalisasi template, nama, dan foto." actions={<button className="primary" onClick={() => setEdit({ name: '', slug: '', description: '', base_price: 0, weight_grams: 50, colors: [], sizes: [], active: true, featured: false, specifications: {}, product_type: 'standard' })}><Plus size={17}/> Produk</button>}/>
+    <AdminHeader title="Produk" actions={<button className="primary" onClick={() => startEditing({ name: '', slug: '', description: '', base_price: 0, weight_grams: 50, colors: [], sizes: [], active: true, featured: false, specifications: {}, product_type: 'standard' })}><Plus size={17}/> Tambah produk</button>}/>
     {error && <div className="alert error">{error}</div>}
-    {edit && <div className="panel editor"><h2>{edit.id ? 'Edit produk' : 'Tambah produk'}</h2><div className="form-grid two">
-      <label>Nama produk<input value={edit.name || ''} onChange={e => setEdit({ ...edit, name: e.target.value })}/></label>
-      <label>Slug<input value={edit.slug || ''} onChange={e => setEdit({ ...edit, slug: e.target.value })} placeholder="opsional, otomatis jika dikosongkan"/></label>
-      <label>Jenis produk<select value={edit.product_type || 'standard'} onChange={e => setEdit({ ...edit, product_type: e.target.value as Product['product_type'] })}><option value="standard">Standard merchandise</option><option value="emoney_card">Kartu e-money custom</option></select><small>Jika memilih kartu e-money custom, customer akan mengunggah foto dan mengatur template sendiri.</small></label>
-      <label>Harga dasar (IDR)<input type="number" value={edit.base_price ?? 0} onChange={e => setEdit({ ...edit, base_price: Number(e.target.value) })}/></label>
-      <label>Berat (gram)<input type="number" value={edit.weight_grams ?? 0} onChange={e => setEdit({ ...edit, weight_grams: Number(e.target.value) })}/></label>
-      <label>Warna (pisahkan koma)<input value={(edit.colors || []).join(', ')} onChange={e => setEdit({ ...edit, colors: e.target.value.split(',').map(v => v.trim()).filter(Boolean) })} disabled={edit.product_type === 'emoney_card'}/></label>
-      <label>Ukuran (pisahkan koma)<input value={(edit.sizes || []).join(', ')} onChange={e => setEdit({ ...edit, sizes: e.target.value.split(',').map(v => v.trim()).filter(Boolean) })} disabled={edit.product_type === 'emoney_card'}/></label>
-      <label className="span-2">Deskripsi<textarea rows={3} value={edit.description || ''} onChange={e => setEdit({ ...edit, description: e.target.value })}/></label>
-      <label className="span-2">Spesifikasi (satu baris: nama=nilai)<textarea rows={4} value={Object.entries(edit.specifications || {}).map(([k, v]) => `${k}=${v}`).join('\n')} onChange={e => { const obj: Record<string, string> = {}; e.target.value.split('\n').forEach(line => { const i = line.indexOf('='); if (i > 0) { const k = line.slice(0, i).trim(); const v = line.slice(i + 1).trim(); if (k) obj[k] = v } }); setEdit({ ...edit, specifications: obj }) }} placeholder={"Bahan=Polyester\nDiameter=95 cm\nMekanisme=Auto open"}/></label>
-      <label>Foto produk<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => setImage(e.target.files?.[0] || null)}/><small>Disimpan di Supabase Storage dan tampil utuh/tidak terpotong.</small></label>
-      <div className="check-row"><label><input type="checkbox" checked={!!edit.active} onChange={e => setEdit({ ...edit, active: e.target.checked })}/> Aktif dijual</label><label><input type="checkbox" checked={!!edit.featured} onChange={e => setEdit({ ...edit, featured: e.target.checked })}/> Featured</label></div>
-    </div><div className="button-row"><button className="primary" onClick={save}>Simpan</button><button className="secondary" onClick={() => setEdit(null)}>Batal</button></div></div>}
-    <div className="admin-card-grid">{items.map(p => <div className="admin-product-card panel" key={p.id}><div className="admin-product-img">{p.image_url ? <img src={p.image_url} alt={p.name}/> : <Package/>}</div><div><h3>{p.name}</h3><b>{rupiah(p.base_price)}</b><p>{p.weight_grams} g · {p.active ? 'Aktif' : 'Nonaktif'} · {p.product_type === 'emoney_card' ? 'E-money custom' : 'Standard'}</p><small>Warna: {p.colors?.join(', ') || '-'}<br/>Ukuran: {p.sizes?.join(', ') || '-'}</small></div><div className="action-row"><button className="mini" onClick={() => { setEdit(p); setImage(null) }}><Edit3 size={14}/> Edit</button><button className="mini danger" onClick={() => remove(p)}><Trash2 size={14}/> Hapus</button></div></div>)}</div>
+    {edit && <div className="panel editor product-editor" id="km11-product-editor">
+      <div className="product-editor-top"><div><span className="eyebrow">Manajemen produk</span><h2>{edit.id ? 'Edit produk' : 'Tambah produk'}</h2></div><button type="button" className="product-editor-close" onClick={() => setEdit(null)} aria-label="Tutup form produk"><X size={19}/></button></div>
+      <div className="product-editor-section">
+        <h3>Informasi produk</h3>
+        <div className="form-grid two">
+          <label>Nama produk<input value={edit.name || ''} onChange={e => setEdit({ ...edit, name: e.target.value })}/></label>
+          <label>Slug<input value={edit.slug || ''} onChange={e => setEdit({ ...edit, slug: e.target.value })} placeholder="Otomatis jika kosong"/></label>
+          <label>Jenis produk<select value={edit.product_type || 'standard'} onChange={e => setEdit({ ...edit, product_type: e.target.value as Product['product_type'] })}><option value="standard">Merchandise standar</option><option value="emoney_card">Kartu e-money custom</option></select></label>
+          <label>Harga (Rp)<input type="number" min="0" value={edit.base_price ?? 0} onChange={e => setEdit({ ...edit, base_price: Number(e.target.value) })}/></label>
+          <label>Berat (gram)<input type="number" min="0" value={edit.weight_grams ?? 0} onChange={e => setEdit({ ...edit, weight_grams: Number(e.target.value) })}/></label>
+        </div>
+      </div>
+      {edit.product_type !== 'emoney_card' && <div className="product-editor-section">
+        <h3>Varian produk</h3>
+        <div className="variant-grid">
+          <VariantEditor label="Warna" values={edit.colors || []} draft={colorDraft} onDraftChange={setColorDraft} onChange={colors => setEdit(prev => prev ? { ...prev, colors } : prev)} placeholder="Contoh: Biru"/>
+          <VariantEditor label="Ukuran" values={edit.sizes || []} draft={sizeDraft} onDraftChange={setSizeDraft} onChange={sizes => setEdit(prev => prev ? { ...prev, sizes } : prev)} placeholder="Contoh: All Size"/>
+        </div>
+      </div>}
+      <div className="product-editor-section">
+        <h3>Detail dan media</h3>
+        <div className="form-grid two">
+          <label className="span-2">Deskripsi produk<textarea rows={3} value={edit.description || ''} onChange={e => setEdit({ ...edit, description: e.target.value })}/></label>
+          <label className="span-2">Spesifikasi produk<textarea rows={4} value={specDraft} onChange={e => setSpecDraft(e.target.value)} placeholder={'Bahan=Polyester\nDiameter=95 cm\nMekanisme=Auto open'}/></label>
+          <label>Foto produk<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => setImage(e.target.files?.[0] || null)}/></label>
+          <div className="product-editor-flags"><label><input type="checkbox" checked={!!edit.active} onChange={e => setEdit({ ...edit, active: e.target.checked })}/> Aktif dijual</label><label><input type="checkbox" checked={!!edit.featured} onChange={e => setEdit({ ...edit, featured: e.target.checked })}/> Produk unggulan</label></div>
+        </div>
+      </div>
+      <div className="button-row product-editor-actions"><button type="button" className="primary" disabled={saving} onClick={save}>{saving ? 'Menyimpan…' : 'Simpan produk'}</button><button type="button" className="secondary" disabled={saving} onClick={() => setEdit(null)}>Batal</button></div>
+    </div>}
+    <div className="admin-products-toolbar"><div className="search-box"><Search size={17}/><input aria-label="Cari produk" placeholder="Cari produk atau varian..." value={search} onChange={e => setSearch(e.target.value)}/></div><span className="admin-products-total">{filtered.length} dari {items.length} produk</span></div>
+    {filtered.length ? <div className="admin-card-grid">{filtered.map(product => <article className="admin-product-card panel" key={product.id}>
+      <div className="admin-product-img">{product.image_url ? <img src={product.image_url} alt={product.name} loading="lazy"/> : <Package size={54}/>}</div>
+      <div className="admin-product-info">
+        <div className="admin-product-flags"><span className={`admin-product-status ${product.active ? 'is-active' : 'is-inactive'}`}>{product.active ? 'Aktif' : 'Nonaktif'}</span><span className="admin-product-type">{product.product_type === 'emoney_card' ? 'E-money custom' : 'Merchandise'}</span></div>
+        <h3 title={product.name}>{product.name}</h3>
+        <strong className="admin-product-price">{rupiah(product.base_price)}</strong>
+        <div className="admin-product-weight">{product.weight_grams} gram</div>
+        {product.product_type !== 'emoney_card' && <div className="admin-product-variants">
+          <div><b>Warna</b><span>{product.colors?.length ? product.colors.join(', ') : '—'}</span></div>
+          <div><b>Ukuran</b><span>{product.sizes?.length ? product.sizes.join(', ') : '—'}</span></div>
+        </div>}
+      </div>
+      <div className="action-row admin-product-actions"><button type="button" className="mini" onClick={() => startEditing(product)}><Edit3 size={15}/> Edit</button><button type="button" className="mini danger" onClick={() => remove(product)}><Trash2 size={15}/> Hapus</button></div>
+    </article>)}</div> : <div className="empty panel">{search ? 'Tidak ada produk yang cocok.' : 'Belum ada produk.'}</div>}
   </>
 }
 
@@ -223,7 +345,7 @@ function PickupsAdmin() {
   useEffect(() => { load() }, [])
   async function save() { if (!edit) return; try { await adminApi.savePickup(edit); setEdit(null); await load() } catch (e) { setError((e as Error).message) } }
   async function addSlot(id: string) { if (!slot.startsAt || !slot.endsAt) return setError('Isi waktu mulai dan selesai.'); try { await adminApi.addSlot(id, { startsAt: new Date(slot.startsAt).toISOString(), endsAt: new Date(slot.endsAt).toISOString(), capacity: slot.capacity ? Number(slot.capacity) : null }); setSlot({ startsAt: '', endsAt: '', capacity: '' }); await load() } catch (e) { setError((e as Error).message) } }
-  return <><AdminHeader title="Lokasi pickup" text="Atur lokasi serta slot tanggal/jam pengambilan yang bisa dipilih customer." actions={<button className="primary" onClick={() => setEdit({ name: '', address: '', notes: '', active: true })}><Plus size={17}/> Lokasi</button>}/>{error && <div className="alert error">{error}</div>}
+  return <><AdminHeader title="Lokasi pickup" actions={<button className="primary" onClick={() => setEdit({ name: '', address: '', notes: '', active: true })}><Plus size={17}/> Lokasi</button>}/>{error && <div className="alert error">{error}</div>}
     {edit && <div className="panel editor"><h2>{edit.id ? 'Edit lokasi' : 'Lokasi baru'}</h2><div className="form-grid two"><label>Nama lokasi<input value={edit.name || ''} onChange={e => setEdit({ ...edit, name: e.target.value })}/></label><label>Alamat<input value={edit.address || ''} onChange={e => setEdit({ ...edit, address: e.target.value })}/></label><label className="span-2">Catatan<textarea value={edit.notes || ''} onChange={e => setEdit({ ...edit, notes: e.target.value })}/></label><label><input type="checkbox" checked={!!edit.active} onChange={e => setEdit({ ...edit, active: e.target.checked })}/> Aktif</label></div><div className="button-row"><button className="primary" onClick={save}>Simpan</button><button className="secondary" onClick={() => setEdit(null)}>Batal</button></div></div>}
     <div className="stack-gap">{items.map(p => <div className="panel pickup-admin" key={p.id}><div className="list-head"><div><h3>{p.name}</h3><p>{p.address}</p><small>{p.notes}</small></div><div className="action-row"><button className="mini" onClick={() => setEdit(p)}><Edit3 size={14}/> Edit</button><button className="mini danger" onClick={async () => { if (confirm('Hapus lokasi dan slotnya?')) { await adminApi.deletePickup(p.id); load() } }}><Trash2 size={14}/></button></div></div><div className="slot-list">{(p.slots || []).map(s => <span key={s.id}>{dt(s.starts_at)} – {new Date(s.ends_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })} <button onClick={async () => { await adminApi.deleteSlot(s.id); load() }}>×</button></span>)}</div><div className="slot-add"><input type="datetime-local" value={slot.startsAt} onChange={e => setSlot({ ...slot, startsAt: e.target.value })}/><input type="datetime-local" value={slot.endsAt} onChange={e => setSlot({ ...slot, endsAt: e.target.value })}/><input type="number" placeholder="Kapasitas" value={slot.capacity} onChange={e => setSlot({ ...slot, capacity: e.target.value })}/><button className="secondary" onClick={() => addSlot(p.id)}><Plus size={16}/> Slot</button></div></div>)}</div>
   </>
@@ -237,7 +359,7 @@ function PaymentsAdmin() {
   async function load() { try { setItems(await adminApi.payments()) } catch (e) { setError((e as Error).message) } }
   useEffect(() => { load() }, [])
   async function save() { if (!edit) return; try { const p = await adminApi.savePayment(edit); if (qr) await adminApi.uploadQr(p.id, qr); setEdit(null); setQr(null); await load() } catch (e) { setError((e as Error).message) } }
-  return <><AdminHeader title="Metode pembayaran" text="Atur transfer bank, QRIS, atau metode lain termasuk upload QR." actions={<button className="primary" onClick={() => setEdit({ name: '', type: 'bank_transfer', account_name: '', account_number: '', instructions: '', active: true })}><Plus size={17}/> Metode</button>}/>{error && <div className="alert error">{error}</div>}
+  return <><AdminHeader title="Metode pembayaran" actions={<button className="primary" onClick={() => setEdit({ name: '', type: 'bank_transfer', account_name: '', account_number: '', instructions: '', active: true })}><Plus size={17}/> Metode</button>}/>{error && <div className="alert error">{error}</div>}
     {edit && <div className="panel editor"><div className="form-grid two"><label>Nama<input value={edit.name || ''} onChange={e => setEdit({ ...edit, name: e.target.value })}/></label><label>Jenis<select value={edit.type || 'bank_transfer'} onChange={e => setEdit({ ...edit, type: e.target.value as any })}><option value="bank_transfer">Transfer bank</option><option value="qris">QRIS</option><option value="other">Lainnya</option></select></label><label>Nomor rekening / ID<input value={edit.account_number || ''} onChange={e => setEdit({ ...edit, account_number: e.target.value })}/></label><label>Nama pemilik<input value={edit.account_name || ''} onChange={e => setEdit({ ...edit, account_name: e.target.value })}/></label><label className="span-2">Instruksi<textarea value={edit.instructions || ''} onChange={e => setEdit({ ...edit, instructions: e.target.value })}/></label><label>QR image<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => setQr(e.target.files?.[0] || null)}/></label><label><input type="checkbox" checked={!!edit.active} onChange={e => setEdit({ ...edit, active: e.target.checked })}/> Aktif</label></div><div className="button-row"><button className="primary" onClick={save}>Simpan</button><button className="secondary" onClick={() => setEdit(null)}>Batal</button></div></div>}
     <div className="admin-card-grid">{items.map(p => <div className="panel payment-admin" key={p.id}>{p.qr_image_url ? <img src={p.qr_image_url} alt={p.name}/> : <CreditCard size={36}/>}<div><h3>{p.name}</h3><p>{p.account_number || p.type}</p><small>{p.active ? 'Aktif' : 'Nonaktif'}</small></div><div className="action-row"><button className="mini" onClick={() => { setEdit(p); setQr(null) }}><Edit3 size={14}/> Edit</button><button className="mini danger" onClick={async () => { if (confirm('Hapus metode pembayaran?')) { await adminApi.deletePayment(p.id); load() } }}><Trash2 size={14}/></button></div></div>)}</div>
   </>
@@ -292,12 +414,12 @@ function AccountAdmin({ onNameChanged }: { onNameChanged: (name: string) => void
   }
 
   return <>
-    <AdminHeader title="Akun Admin" text="Ubah nama yang tampil di dashboard, username login, dan password admin secara aman."/>
+    <AdminHeader title="Akun Admin"/>
     {error && <div className="alert error">{error}</div>}
     {success && <div className="alert success">{success}</div>}
     <div className="account-grid">
       <div className="panel editor">
-        <div className="account-section-title"><UserCog size={22}/><div><h2>Profil admin</h2><p>Nama tampil dan username dapat diubah tanpa membuat akun baru.</p></div></div>
+        <div className="account-section-title"><UserCog size={22}/><div><h2>Profil admin</h2></div></div>
         <div className="form-grid">
           <label>Nama admin<input value={displayName} onChange={e => setDisplayName(e.target.value)} maxLength={120}/></label>
           <label>Username login<input value={username} onChange={e => setUsername(e.target.value)} maxLength={80}/><small>Digunakan saat login. Harus unik.</small></label>
@@ -306,7 +428,7 @@ function AccountAdmin({ onNameChanged }: { onNameChanged: (name: string) => void
         <div className="button-row"><button className="primary" onClick={saveProfile} disabled={busy}>Simpan profil</button></div>
       </div>
       <div className="panel editor">
-        <div className="account-section-title"><KeyRound size={22}/><div><h2>Ubah password</h2><p>Password lama wajib diverifikasi sebelum password baru disimpan.</p></div></div>
+        <div className="account-section-title"><KeyRound size={22}/><div><h2>Ubah password</h2></div></div>
         <div className="form-grid">
           <label>Password saat ini<input type="password" autoComplete="current-password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)}/></label>
           <label>Password baru<input type="password" autoComplete="new-password" value={newPassword} onChange={e => setNewPassword(e.target.value)}/><small>Minimal 8 karakter.</small></label>
@@ -324,8 +446,10 @@ function SettingsAdmin() {
   const [saved, setSaved] = useState(false)
   useEffect(() => { adminApi.settings().then(v => setSettings(s => ({ ...s, ...v }))).catch(e => setError((e as Error).message)) }, [])
   async function save() { try { setSettings(await adminApi.saveSettings(settings)); setSaved(true); setTimeout(() => setSaved(false), 1500) } catch (e) { setError((e as Error).message) } }
-  return <><AdminHeader title="Pengaturan" text="Konfigurasi asal kirim RajaOngkir dan kurir yang ditawarkan saat checkout."/>{error && <div className="alert error">{error}</div>}<div className="panel editor"><div className="form-grid two"><label>RajaOngkir Origin ID<input value={settings.shipping_origin_id || ''} onChange={e => setSettings({ ...settings, shipping_origin_id: e.target.value })}/><small>ID lokasi asal dari RajaOngkir.</small></label><label>Label asal<input value={settings.shipping_origin_label || ''} onChange={e => setSettings({ ...settings, shipping_origin_label: e.target.value })} placeholder="Contoh: Jakarta Utara"/></label><label className="span-2">Kode kurir (pisahkan titik dua)<input value={settings.shipping_couriers || ''} onChange={e => setSettings({ ...settings, shipping_couriers: e.target.value })}/><small>Contoh: jne:sicepat:jnt:ninja:tiki:anteraja:pos</small></label></div><button className="primary" onClick={save}>{saved ? <><CheckCircle2 size={17}/> Tersimpan</> : <>Simpan pengaturan</>}</button></div></>
+  return <><AdminHeader title="Pengaturan"/>{error && <div className="alert error">{error}</div>}<div className="panel editor"><div className="form-grid two"><label>RajaOngkir Origin ID<input value={settings.shipping_origin_id || ''} onChange={e => setSettings({ ...settings, shipping_origin_id: e.target.value })}/><small>ID lokasi asal dari RajaOngkir.</small></label><label>Label asal<input value={settings.shipping_origin_label || ''} onChange={e => setSettings({ ...settings, shipping_origin_label: e.target.value })} placeholder="Contoh: Jakarta Utara"/></label><label className="span-2">Kode kurir (pisahkan titik dua)<input value={settings.shipping_couriers || ''} onChange={e => setSettings({ ...settings, shipping_couriers: e.target.value })}/><small>Contoh: jne:sicepat:jnt:ninja:tiki:anteraja:pos</small></label></div><button className="primary" onClick={save}>{saved ? <><CheckCircle2 size={17}/> Tersimpan</> : <>Simpan pengaturan</>}</button></div></>
 }
 
-function AdminHeader({ title, text, actions }: { title: string; text: string; actions?: React.ReactNode }) { return <div className="admin-header"><div><span className="eyebrow">Dashboard admin</span><h1>{title}</h1><p>{text}</p></div>{actions && <div className="button-row">{actions}</div>}</div> }
+function AdminHeader({ title, actions }: { title: string; actions?: React.ReactNode }) {
+  return <div className="admin-header"><div><span className="eyebrow">Dashboard admin</span><h1>{title}</h1></div>{actions && <div className="button-row">{actions}</div>}</div>
+}
 function Stat({ label, value }: { label: string; value: string | number }) { return <div className="stat panel"><span>{label}</span><b>{value}</b></div> }

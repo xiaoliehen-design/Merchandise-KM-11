@@ -127,7 +127,7 @@ export default function CartCheckoutPage() {
   </section>
 
   return <section className="section">
-    <div className="section-heading"><div><span className="eyebrow">Checkout</span><h1>Selesaikan pesananmu</h1></div><p>Harga produk diambil ulang di server saat checkout. Untuk item kartu e-money, preview PNG yang sudah disetujui ikut dikirim dan disimpan untuk admin cetak.</p></div>
+    <div className="section-heading"><div><span className="eyebrow">Checkout</span><h1>Selesaikan pesananmu</h1></div></div>
     {error && <div className="alert error">{error}</div>}
     <div className="checkout-grid">
       <div className="checkout-main">
@@ -180,8 +180,7 @@ export default function CartCheckoutPage() {
         <div className="summary-line"><span>Subtotal</span><strong>{rupiah(cart.subtotal)}</strong></div>
         <div className="summary-line"><span>Ongkir</span><strong>{rupiah(shippingCost)}</strong></div>
         <div className="summary-total"><span>Total</span><strong>{rupiah(total)}</strong></div>
-        <small className="muted">Dengan menekan tombol di bawah, Anda membuat order resmi dan admin akan menerima file desain kartu e-money (jika ada) beserta bukti pembayaran untuk diverifikasi.</small>
-        <button className="primary" onClick={checkout} disabled={busy || !cart.items.length}>{busy ? 'Memproses…' : 'Buat order'}</button>
+        <button className="primary" onClick={checkout} disabled={busy || !cart.items.length}>{busy ? 'Memproses…' : 'Konfirmasi pesanan'}</button>
       </aside>
     </div>
   </section>

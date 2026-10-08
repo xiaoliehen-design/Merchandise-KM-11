@@ -132,7 +132,7 @@ function EmoneyCustomizerModal({ product, onClose }: { product: Product; onClose
 
   return <div className="modal-backdrop" onClick={onClose}>
     <div className="modal-card emoney-modal" onClick={e => e.stopPropagation()}>
-      <div className="modal-head"><div><span className="eyebrow">Custom e-money</span><h2>{product.name}</h2><p>Pilih template, upload foto customer (disarankan PNG), atur posisi foto dan nama, lalu setujui preview sebelum masuk ke keranjang.</p></div><button className="icon" onClick={onClose}><X size={18}/></button></div>
+      <div className="modal-head"><div><span className="eyebrow">Custom e-money</span><h2>{product.name}</h2><p>Pilih salah satu dari 4 template depan, upload foto customer, atur posisi foto dan nama, lalu setujui preview sebelum masuk ke keranjang.</p></div><button className="icon" onClick={onClose}><X size={18}/></button></div>
       {error && <div className="alert error">{error}</div>}
       <div className="emoney-grid">
         <div className="panel emoney-config">
@@ -143,7 +143,7 @@ function EmoneyCustomizerModal({ product, onClose }: { product: Product; onClose
           <label>Nama customer<input maxLength={28} value={form.customerName} onChange={e => patch('customerName', e.target.value)} placeholder="Contoh: Hendra"/></label>
           <label>Foto customer<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => readPhoto(e.target.files?.[0] || null)}/><small>Disarankan PNG agar lebih menyatu dengan template. JPG/WebP tetap bisa digunakan.</small></label>
           <div className="qty-row"><span>Jumlah kartu</span><div className="qty-control"><button onClick={() => setQty(Math.max(1, qty - 1))}><Minus size={16}/></button><b>{qty}</b><button onClick={() => setQty(qty + 1)}><Plus size={16}/></button></div></div>
-          <small className="muted">Template yang digunakan untuk order akan menghapus area teks "Panitia Pusat / Papua Barat" di kanan atas dan menghapus placeholder posisi. Yang tersisa hanya nama customer serta foto customer.</small>
+          <small className="muted">Tersedia 4 pilihan template depan. Desain belakang ditampilkan sebagai informasi agar customer mengetahui tampilan kartu secara utuh, tetapi sisi belakang tidak dapat diedit.</small>
         </div>
         <div className="panel emoney-config">
           <h3>2. Posisi nama</h3>
@@ -157,9 +157,12 @@ function EmoneyCustomizerModal({ product, onClose }: { product: Product; onClose
           <div className="button-row"><button className="secondary" onClick={approvePreview} disabled={busy}>Setujui preview</button><button className="primary" onClick={addToCart} disabled={busy || !approved}><ShoppingCart size={18}/> Tambah ke keranjang</button></div>
         </div>
         <div className="panel emoney-preview-panel">
-          <div className="preview-head"><div><h3>4. Preview kartu</h3><p>Periksa hasil akhir sebelum checkout. Saat pesanan dibuat, file PNG preview ini akan disimpan dan bisa diunduh admin untuk proses cetak.</p></div>{approved && <span className="status-badge verified">Preview disetujui</span>}</div>
+          <div className="preview-head"><div><h3>4. Preview kartu</h3><p>Periksa hasil akhir sebelum checkout. Customer hanya dapat mengedit sisi depan. Desain belakang ditampilkan di bawah sebagai informasi.</p></div>{approved && <span className="status-badge verified">Preview disetujui</span>}</div>
           <div className="emoney-preview-wrap"><canvas ref={previewRef}/></div>
-          <div className="emoney-back-note"><img src={EMONEY_BACK_URL} alt="Back template e-money"/><div><b>Sisi belakang</b><p>Template belakang tetap menggunakan desain standar KM11 dan dapat dipakai admin sebagai acuan cetak balik.</p></div></div>
+          <div className="emoney-back-panel">
+            <div className="emoney-back-panel-head"><b>Sisi belakang kartu</b><span>Informasi saja · tidak dapat diedit</span></div>
+            <div className="emoney-back-note"><img src={EMONEY_BACK_URL} alt="Desain belakang kartu e-money"/><div><p>Desain belakang ini menjadi acuan visual bagi customer agar mengetahui tampilan akhir kartu. Admin dapat menggunakannya saat proses cetak, tetapi customer tidak mengubah sisi ini dari website.</p></div></div>
+          </div>
         </div>
       </div>
     </div>
@@ -178,7 +181,6 @@ export default function StorePage() {
       <div className="hero-copy">
         <span className="eyebrow">Kemenkeu Mengajar 11</span>
         <h1>Merchandise KM11, <em>ceria, rapi, mudah dipesan.</em></h1>
-        <p>Pilih produk, varian, dan jumlahnya. Tersedia juga katalog kartu e-money custom: customer dapat mengatur template, nama, dan foto sebelum checkout.</p>
         <a className="primary hero-btn" href="#katalog">Lihat Katalog</a>
       </div>
       <figure className="hero-photo">
@@ -197,7 +199,7 @@ export default function StorePage() {
       </figure>
     </section>
     <section id="katalog" className="section catalog-section">
-      <div className="section-heading"><div><span className="eyebrow">Katalog</span><h2>Pilih merchandise kamu</h2></div><p>Foto produk ditampilkan utuh dengan <i>object-fit: contain</i>, sehingga tidak terpotong. Untuk kartu e-money, customer bisa melakukan personalisasi langsung dari katalog.</p></div>
+      <div className="section-heading"><div><span className="eyebrow">Katalog</span><h2>Pilih merchandise kamu</h2></div></div>
       {loading ? <div className="empty">Memuat produk...</div> : error ? <div className="alert error">{error}</div> : products.length ? <div className="product-grid">{products.map(p => <ProductCard p={p} key={p.id} onOpenCustomizer={setEmoneyProduct}/>)}</div> : <div className="empty">Belum ada produk aktif. Admin dapat menambahkan produk dari dashboard.</div>}
     </section>
     {emoneyProduct && <EmoneyCustomizerModal product={emoneyProduct} onClose={() => setEmoneyProduct(null)}/>} 
