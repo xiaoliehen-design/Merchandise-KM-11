@@ -173,3 +173,17 @@ public/theme/payung-putih.png
 ```
 
 They are used in the landing hero and as inactive demo product references. They are not uploaded automatically to Supabase, because the admin product uploader is intended to be the source of truth for final product photographs.
+
+## Troubleshooting: `Server belum dikonfigurasi: SUPABASE_URL`
+
+Read **`CLOUDFLARE_FIX_GUIDE.md`** for a step-by-step diagnosis. The repository now contains `keep_vars: true` to avoid overwriting dashboard-managed Worker variables during a Wrangler deploy.
+
+After deploying the new version, open `https://YOUR_LIVE_DOMAIN/api/health` in a browser. Confirm `revision` is `km11-config-check-2026-10-08-v1`, `configured` is `true`, and `missing_bindings` is empty. This endpoint exposes only the **names** of missing environment variables, never their values.
+
+## Pembaruan gambar landing page — 8 Oktober 2026
+
+- Hero merchandise lama yang berupa kolase beberapa gambar terpisah digantikan dengan foto showcase KM11 yang diberikan pengguna.
+- Gambar berada di `public/hero/km11-merchandise-showcase.png` (salinan PNG asli, tanpa perubahan) dan `.webp` (versi yang lebih ringan untuk browser modern).
+- Tampilan hero memiliki rasio 4:3 dan `object-fit: contain`, sehingga gambar tidak terpotong pada desktop maupun ponsel.
+- Komponen katalog, keranjang, admin, Worker, dan konfigurasi Supabase tidak berubah.
+- Deploy ulang versi ini melalui GitHub/Cloudflare dan hard refresh jika website masih menampilkan hero lama.

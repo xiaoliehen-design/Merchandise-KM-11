@@ -41,3 +41,19 @@ Added an **Akun Admin** section with:
 Validation performed after the update:
 - all 13 TypeScript/TSX source files parsed successfully with the TypeScript compiler parser;
 - `scripts/self-test.mjs` passed.
+
+## Addendum — 2026-10-08: Cloudflare `SUPABASE_URL` diagnostic fix
+
+Changes from the uploaded package:
+
+- Added `"keep_vars": true` to `wrangler.jsonc` to preserve Dashboard-managed plain-text variables across Wrangler redeploys.
+- Added a `/api/health` configuration check that does **not** require the Supabase bindings to exist, does **not** expose their values, and includes a deployment revision marker.
+- Kept the normal mandatory binding checks active for `/api/products` and all other API routes.
+- Added `CLOUDFLARE_FIX_GUIDE.md` with domain and deployment troubleshooting steps.
+
+Validation in this environment:
+
+- Project structural test: **PASS** (`node scripts/self-test.mjs`).
+- TypeScript/TSX syntax parse: **PASS** (14 source files).
+- Mocked Worker route tests: **PASS** (health check without variables, `/api/products` mandatory guard, readiness status with all 4 required bindings).
+- Full dependency installation/build and live Cloudflare/Supabase requests: **NOT VERIFIED** (npm dependency retrieval timed out; no connection to owner's deployment). Do not interpret the above test results as proof that the live deployment has been fixed.

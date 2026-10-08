@@ -21,8 +21,16 @@ function service(env: Bindings): SupabaseClient {
 function anon(env: Bindings): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
 }
+const REQUIRED_BINDINGS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'CART_SECRET'] as const
+const WORKER_REVISION = 'km11-config-check-2026-10-08-v1'
+
+// Report names only; environment values and secrets must never be returned to visitors.
+function missingBindings(env: Bindings | undefined): string[] {
+  return REQUIRED_BINDINGS.filter(key => typeof env?.[key] !== 'string' || !env[key].trim())
+}
 function requireEnv(env: Bindings) {
-  for (const k of ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'CART_SECRET'] as const) if (!env[k]) throw new Error(`Server belum dikonfigurasi: ${k}`)
+  const missing = missingBindings(env)
+  if (missing.length) throw new Error(`Server belum dikonfigurasi: ${missing[0]}`)
 }
 function cleanText(v: unknown, max = 500) { return String(v ?? '').trim().slice(0, max) }
 function isUuid(v: unknown) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v || '')) }
@@ -46,6 +54,8 @@ function parsePngDataUrl(input: string) {
 }
 
 app.use('/api/*', async (c, next) => {
+  // Health checks must work even if the production environment is incomplete.
+  if (c.req.path === '/api/health') return next()
   try { requireEnv(c.env) } catch (e) { return c.json({ error: (e as Error).message }, 500) }
   await next()
 })
@@ -64,7 +74,18 @@ app.use('/api/admin/*', async (c, next) => {
   return next()
 })
 
-app.get('/api/health', c => c.json({ ok: true, app: c.env.APP_NAME || 'KM 11 Merchandise', time: new Date().toISOString() }))
+app.get('/api/health', c => {
+  const missing = missingBindings(c.env)
+  c.header('Cache-Control', 'no-store')
+  return c.json({
+    ok: true,
+    app: c.env?.APP_NAME || 'KM 11 Merchandise',
+    revision: WORKER_REVISION,
+    configured: missing.length === 0,
+    missing_bindings: missing,
+    time: new Date().toISOString()
+  })
+})
 
 app.get('/api/products', async c => {
   const { data, error } = await service(c.env).from('products').select('*').eq('active', true).order('featured', { ascending: false }).order('created_at', { ascending: false })

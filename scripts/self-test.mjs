@@ -24,6 +24,8 @@ if (storePage.includes('/theme/payung-biru.png') || storePage.includes('/theme/p
 if (!storePage.includes('/brand/km11-logo-white.png')) failures.push('Landing hero does not use official KM11 logo asset')
 const wrangler = fs.readFileSync('wrangler.jsonc','utf8')
 if (!wrangler.includes('"/api/*"')) failures.push('Cloudflare API routing is not configured')
+if (!wrangler.includes('"keep_vars": true')) failures.push('Dashboard variables would be overwritten by a Wrangler deploy (missing keep_vars)')
+if (!worker.includes('missing_bindings: missing') || !worker.includes('WORKER_REVISION')) failures.push('Missing safe Worker binding diagnosis in /api/health')
 
 if (failures.length) {
   console.error('Self-test failed:\n- ' + failures.join('\n- '))
