@@ -1,7 +1,7 @@
 export type EmoneyTemplate = {
   id: string
   label: string
-  crop: { x: number; y: number; w: number; h: number }
+  src: string
 }
 
 export type EmoneyCustomization = {
@@ -19,15 +19,15 @@ export type EmoneyCustomization = {
 }
 
 export const EMONEY_CANVAS = { width: 540, height: 855 }
-export const EMONEY_SPRITE_URL = '/emoney/front-templates-4.png'
 export const EMONEY_BACK_URL = '/emoney/back-template-info.png'
-const CARD_BLUE = '#3967b6'
+const NAME_BAR_COLOR = '#3b69b4'
+const NAME_BAR_TOP = 0.855
 
 export const EMONEY_TEMPLATES: EmoneyTemplate[] = [
-  { id: 'em1', label: 'Template 1', crop: { x: 20, y: 20, w: 201, h: 321 } },
-  { id: 'em2', label: 'Template 2', crop: { x: 241, y: 20, w: 201, h: 321 } },
-  { id: 'em3', label: 'Template 3', crop: { x: 20, y: 341, w: 201, h: 321 } },
-  { id: 'em4', label: 'Template 4', crop: { x: 241, y: 341, w: 201, h: 321 } }
+  { id: 'em1', label: 'Template 1', src: '/emoney/templates/template-1.png' },
+  { id: 'em2', label: 'Template 2', src: '/emoney/templates/template-2.png' },
+  { id: 'em3', label: 'Template 3', src: '/emoney/templates/template-3.png' },
+  { id: 'em4', label: 'Template 4', src: '/emoney/templates/template-4.png' }
 ]
 
 const imageCache = new Map<string, Promise<HTMLImageElement>>()
@@ -55,10 +55,10 @@ export function defaultEmoneyCustomization(templateId = EMONEY_TEMPLATES[0]?.id 
     templateLabel: template.label,
     customerName: '',
     nameX: 50,
-    nameY: 89,
+    nameY: 92.5,
     nameSize: 34,
     photoX: 50,
-    photoY: 50,
+    photoY: 52,
     photoScale: 100
   }
 }
@@ -67,23 +67,27 @@ function sanitizeName(name: string) {
   return name.trim().replace(/\s+/g, ' ').slice(0, 28)
 }
 
+function resolveTemplate(templateId: string) {
+  return EMONEY_TEMPLATES.find(t => t.id === templateId) || EMONEY_TEMPLATES[0]
+}
+
 export async function drawEmoneyBaseTemplate(canvas: HTMLCanvasElement, templateId: string) {
-  const template = EMONEY_TEMPLATES.find(t => t.id === templateId) || EMONEY_TEMPLATES[0]
-  const sprite = await loadImage(EMONEY_SPRITE_URL)
+  const template = resolveTemplate(templateId)
+  const artwork = await loadImage(template.src)
   canvas.width = EMONEY_CANVAS.width
   canvas.height = EMONEY_CANVAS.height
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Canvas tidak tersedia.')
   ctx.clearRect(0, 0, canvas.width, canvas.height)
-  ctx.drawImage(sprite, template.crop.x, template.crop.y, template.crop.w, template.crop.h, 0, 0, canvas.width, canvas.height)
+  ctx.drawImage(artwork, 0, 0, artwork.width, artwork.height, 0, 0, canvas.width, canvas.height)
   return ctx
 }
 
 export async function drawEmoneyTemplate(canvas: HTMLCanvasElement, templateId: string) {
   const ctx = await drawEmoneyBaseTemplate(canvas, templateId)
-  // rapikan area placeholder teks di bagian bawah, tanpa mengubah identitas template utama.
-  ctx.fillStyle = CARD_BLUE
-  ctx.fillRect(0, canvas.height * 0.80, canvas.width, canvas.height * 0.20)
+  const nameBarY = Math.round(canvas.height * NAME_BAR_TOP)
+  ctx.fillStyle = NAME_BAR_COLOR
+  ctx.fillRect(0, nameBarY, canvas.width, canvas.height - nameBarY)
   return ctx
 }
 
@@ -102,11 +106,12 @@ export async function renderEmoneyPreview(options: {
   const ctx = await drawEmoneyTemplate(options.canvas, options.templateId)
   const w = options.canvas.width
   const h = options.canvas.height
+
   if (options.photoDataUrl) {
     try {
       const photo = await loadImage(options.photoDataUrl)
       const maxW = w * 0.72
-      const maxH = h * 0.55
+      const maxH = h * 0.56
       const fitRatio = Math.min(maxW / photo.width, maxH / photo.height)
       const ratio = fitRatio * Math.max(0.35, Math.min(1.8, options.photoScale / 100))
       const drawW = photo.width * ratio
@@ -115,14 +120,15 @@ export async function renderEmoneyPreview(options: {
       const drawY = (options.photoY / 100) * h - drawH / 2
       ctx.drawImage(photo, drawX, drawY, drawW, drawH)
     } catch {
-      // ignore photo render errors and continue with template/name
+      // lanjutkan walau foto gagal dirender
     }
   }
-  const name = sanitizeName(options.customerName || 'Nama Kamu')
+
+  const name = sanitizeName(options.customerName || 'Nama Lengkap')
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
   ctx.fillStyle = '#ffffff'
-  ctx.font = `700 ${Math.max(20, Math.min(72, options.nameSize))}px Inter, Arial, sans-serif`
+  ctx.font = `800 ${Math.max(20, Math.min(72, options.nameSize))}px Inter, Arial, sans-serif`
   ctx.fillText(name, (options.nameX / 100) * w, (options.nameY / 100) * h, w * 0.88)
 }
 

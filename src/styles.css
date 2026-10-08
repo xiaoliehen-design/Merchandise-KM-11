@@ -93,3 +93,25 @@
 .emoney-back-note img{width:140px;height:auto;aspect-ratio:54/85;object-fit:contain;border-radius:14px;background:#fff;padding:4px;border:1px solid #e5edf9;flex:none}
 .emoney-back-note p{margin:0;color:var(--muted);line-height:1.6}
 @media(max-width:700px){.emoney-back-note{flex-direction:column}.emoney-back-note img{width:min(100%,220px)}}
+
+/* Foto produk per varian warna — admin */
+.color-photo-editor{margin-top:22px;padding:17px;border:1px solid #dce7f8;border-radius:17px;background:#f9fbff}
+.color-photo-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.color-photo-heading h3{margin:0!important;font-size:15px!important}
+.color-photo-heading span{padding:5px 10px;border-radius:99px;background:#e5efff;color:var(--blue);font-weight:800;font-size:11px}
+.color-photo-editor>p{margin:8px 0 17px;color:var(--muted);font-size:12px;line-height:1.55}
+.color-photo-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.color-photo-row{display:flex;gap:13px;min-width:0;padding:12px;background:white;border:1px solid var(--line);border-radius:14px;align-items:flex-start}
+.color-photo-preview{width:100px;height:105px;border-radius:11px;background:#edf3fd;display:grid;place-items:center;flex:none;overflow:hidden;color:#7893b7}
+.color-photo-preview img{width:100%;height:100%;object-fit:contain}
+.color-photo-meta{display:flex;flex-direction:column;align-items:flex-start;gap:7px;min-width:0;flex:1}
+.color-photo-meta>b{font-size:14px;color:var(--ink);overflow-wrap:anywhere}
+.color-photo-meta>small{font-size:11px;color:var(--muted);overflow-wrap:anywhere;line-height:1.45}
+.color-photo-upload{position:relative;display:inline-flex;align-items:center;justify-content:center;border:1px solid #d6e5fb;border-radius:9px;background:#edf4ff;color:var(--blue);padding:8px 12px;cursor:pointer;max-width:100%;text-align:center}
+.color-photo-upload span{font-size:12px;font-weight:800}
+.color-photo-upload input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer;padding:0}
+.color-photo-upload:focus-within{outline:2px solid #78a9f4;outline-offset:2px}
+.color-photo-cancel{background:none;border:0;padding:2px 0;color:#ac4050;font-size:11px;font-weight:700}
+.color-photo-empty{padding:18px;border:1px dashed #cbdcf3;border-radius:12px;color:var(--muted);font-size:12px;background:white}
+@media(max-width:900px){.color-photo-list{grid-template-columns:1fr}}
+@media(max-width:480px){.color-photo-row{gap:9px}.color-photo-preview{width:82px;height:95px}}

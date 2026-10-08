@@ -115,6 +115,7 @@ export const adminApi = {
   products: () => apiGet<Product[]>('/admin/products'),
   upsertProduct: (payload: Partial<Product> & { id?: string }) => apiJson<Product>(payload.id ? `/admin/products/${payload.id}` : '/admin/products', payload.id ? 'PUT' : 'POST', payload),
   uploadProductImage: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return apiForm<Product>(`/admin/products/${id}/image`, f) },
+  uploadColorImage: (id: string, color: string, file: File) => { const f = new FormData(); f.append('color', color); f.append('file', file); return apiForm<Product>(`/admin/products/${id}/color-image`, f) },
   deleteProduct: (id: string) => apiJson<{ ok: true }>(`/admin/products/${id}`, 'DELETE'),
   pickups: () => apiGet<PickupLocation[]>('/admin/pickup-locations'),
   savePickup: (payload: Partial<PickupLocation> & { id?: string }) => apiJson<PickupLocation>(payload.id ? `/admin/pickup-locations/${payload.id}` : '/admin/pickup-locations', payload.id ? 'PUT' : 'POST', payload),

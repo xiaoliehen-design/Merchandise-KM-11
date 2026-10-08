@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, CreditCard, Minus, Plus, ShoppingCart, Sparkles, X } from 'lucide-react'
 import { catalogApi } from './api'
+import { resolveProductImage } from './colorImages'
 import { useCart } from './CartContext'
 import { EMONEY_BACK_URL, EMONEY_TEMPLATES, defaultEmoneyCustomization, drawEmoneyBaseTemplate, renderEmoneyDataUrl, renderEmoneyPreview } from './emoney'
 import type { Product } from './types'
@@ -14,27 +15,34 @@ function ProductCard({ p, onOpenCustomizer }: { p: Product; onOpenCustomizer: (p
   const [added, setAdded] = useState(false)
 
   function onAdd() {
-    add({ productId: p.id, name: p.name, imageUrl: p.image_url, unitPrice: p.base_price, qty, color: color || undefined, size: size || undefined, weightGrams: p.weight_grams })
+    add({ productId: p.id, name: p.name, imageUrl: selectedImageUrl, unitPrice: p.base_price, qty, color: color || undefined, size: size || undefined, weightGrams: p.weight_grams })
     setAdded(true)
     window.setTimeout(() => setAdded(false), 1200)
   }
 
   const isEmoney = p.product_type === 'emoney_card'
+  const selectedImageUrl = isEmoney ? '/emoney/front-templates.png' : resolveProductImage(p, color)
+  const productDescription = isEmoney
+    ? 'Katalog kartu e-money custom. Customer dapat memilih 1 dari 4 template, upload foto, mengatur posisi foto/nama, menyetujui preview, lalu hasil PNG final akan tersimpan untuk admin cetak.'
+    : (p.description || 'Merchandise Kemenkeu Mengajar 11')
+  const productSpecs = isEmoney
+    ? { Format: 'Custom e-money card', Preview: 'PNG final tersimpan', Template: '4 pilihan template' }
+    : (p.specifications || {})
 
   return <article className="product-card">
     <div className="product-image-wrap">
       {p.featured && <span className="featured"><Sparkles size={14}/> Pilihan KM11</span>}
       {isEmoney && <span className="featured alt"><CreditCard size={14}/> Custom e-money</span>}
-      {p.image_url ? <img className="product-image" src={p.image_url} alt={p.name}/> : <div className="product-placeholder"><img src="/brand/km11-logo-white.png" alt="Kemenkeu Mengajar 11"/></div>}
+      {selectedImageUrl ? <img className="product-image" src={selectedImageUrl} alt={color && !isEmoney ? `${p.name} warna ${color}` : p.name}/> : <div className="product-placeholder"><img src="/brand/km11-logo-white.png" alt="Kemenkeu Mengajar 11"/></div>}
     </div>
     <div className="product-body">
       <div>
         <h3>{p.name}</h3>
-        <p>{p.description || 'Merchandise Kemenkeu Mengajar 11'}</p>
-        {Object.keys(p.specifications || {}).length > 0 && <dl className="product-specs">{Object.entries(p.specifications).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>}
+        <p>{productDescription}</p>
+        {Object.keys(productSpecs).length > 0 && <dl className="product-specs">{Object.entries(productSpecs).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>}
       </div>
       <strong className="price">{rupiah(p.base_price)}</strong>
-      {!isEmoney && !!p.colors?.length && <label>Warna<select value={color} onChange={e => setColor(e.target.value)}>{p.colors.map(v => <option key={v}>{v}</option>)}</select></label>}
+      {!isEmoney && !!p.colors?.length && <label>Warna<select value={color} onChange={e => { setColor(e.target.value); setAdded(false) }}>{p.colors.map(v => <option key={v}>{v}</option>)}</select></label>}
       {!isEmoney && !!p.sizes?.length && <label>Ukuran<select value={size} onChange={e => setSize(e.target.value)}>{p.sizes.map(v => <option key={v}>{v}</option>)}</select></label>}
       <div className="qty-row"><span>Jumlah</span><div className="qty-control"><button onClick={() => setQty(Math.max(1, qty - 1))}><Minus size={16}/></button><b>{qty}</b><button onClick={() => setQty(qty + 1)}><Plus size={16}/></button></div></div>
       {isEmoney

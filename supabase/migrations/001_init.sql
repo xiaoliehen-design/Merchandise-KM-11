@@ -273,7 +273,7 @@ insert into public.products(name,slug,description,base_price,weight_grams,colors
 values (
   'Kartu e-Money Custom KM11',
   'kartu-emoney-custom-km11',
-  'Katalog kartu e-money custom. Customer dapat memilih template, upload foto, mengatur posisi foto/nama, menyetujui preview, lalu hasil PNG final akan tersimpan untuk admin cetak.',
+  'Katalog kartu e-money custom. Customer dapat memilih 1 dari 4 template, upload foto, mengatur posisi foto/nama, menyetujui preview, lalu hasil PNG final akan tersimpan untuk admin cetak.',
   0,
   50,
   array[]::text[],
@@ -282,7 +282,7 @@ values (
   false,
   true,
   'emoney_card',
-  jsonb_build_object('Format','Custom e-money card','Preview','PNG final tersimpan','Template','16 pilihan template')
+  jsonb_build_object('Format','Custom e-money card','Preview','PNG final tersimpan','Template','4 pilihan template')
 )
 on conflict (slug) do nothing;
 

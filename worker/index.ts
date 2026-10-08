@@ -412,7 +412,35 @@ app.get('/api/admin/orders/:id/payment-proof-url', async c => { const { data: o 
 
 app.get('/api/admin/products', async c => { const { data, error } = await service(c.env).from('products').select('*').order('created_at', { ascending: false }); if (error) throw error; return c.json(data || []) })
 app.post('/api/admin/products', async c => { const b = await c.req.json(); const row = productPayload(b); const { data, error } = await service(c.env).from('products').insert(row).select().single(); if (error) throw error; return c.json(data, 201) })
-app.put('/api/admin/products/:id', async c => { const b = await c.req.json(); const row = productPayload(b); const { data, error } = await service(c.env).from('products').update(row).eq('id', c.req.param('id')).select().single(); if (error) throw error; return c.json(data) })
+app.put('/api/admin/products/:id', async c => {
+  const id = c.req.param('id')
+  if (!isUuid(id)) return c.json({ error: 'ID produk tidak valid.' }, 400)
+  const sb = service(c.env)
+  const { data: current, error: readErr } = await sb.from('products').select('id,color_images,color_image_paths').eq('id', id).maybeSingle()
+  if (readErr) throw readErr
+  if (!current) return c.json({ error: 'Produk tidak ditemukan.' }, 404)
+  const b = await c.req.json()
+  const row = productPayload(b)
+  const previousUrls = plainStringMap(current.color_images)
+  const previousPaths = plainStringMap(current.color_image_paths)
+  const nextColors = new Set(row.colors)
+  const color_images = Object.fromEntries(Object.entries(previousUrls).filter(([color]) => nextColors.has(color)))
+  const color_image_paths = Object.fromEntries(Object.entries(previousPaths).filter(([color]) => nextColors.has(color)))
+  const { data, error } = await sb.from('products').update({ ...row, color_images, color_image_paths }).eq('id', id).select().single()
+  if (error) throw error
+  // Bersihkan file untuk warna yang sudah dihapus setelah data berhasil disimpan.
+  const obsolete = Object.entries(previousPaths)
+    .filter(([color, path]) => !nextColors.has(color) && path.startsWith(`products/${id}/colors/`))
+    .map(([, path]) => path)
+  if (obsolete.length) await sb.storage.from('product-images').remove(obsolete).catch(() => undefined)
+  return c.json(data)
+})
+function plainStringMap(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(Object.entries(value).filter(([key, v]) =>
+    key.length <= 60 && typeof v === 'string' && v.length <= 2048)) as Record<string, string>
+}
+
 function productPayload(b: any) {
   const name = cleanText(b.name, 160)
   if (!name) throw new Error('Nama produk wajib diisi.')
@@ -435,7 +463,51 @@ function productPayload(b: any) {
   }
 }
 app.post('/api/admin/products/:id/image', async c => { const id = c.req.param('id'), sb = service(c.env); const { data: p } = await sb.from('products').select('id,image_path').eq('id', id).maybeSingle(); if (!p) return c.json({ error: 'Produk tidak ditemukan.' }, 404); const body = await c.req.parseBody(), file = body.file; if (!(file instanceof File)) return c.json({ error: 'Pilih file foto.' }, 400); allowedUpload(file, 'image'); const path = randomPath(`products/${id}`, file); const { error: up } = await sb.storage.from('product-images').upload(path, file, { contentType: file.type }); if (up) throw up; const { data: url } = sb.storage.from('product-images').getPublicUrl(path); if (p.image_path) await sb.storage.from('product-images').remove([p.image_path]).catch(() => undefined); const { data, error } = await sb.from('products').update({ image_path: path, image_url: url.publicUrl, updated_at: new Date().toISOString() }).eq('id', id).select().single(); if (error) throw error; return c.json(data) })
-app.delete('/api/admin/products/:id', async c => { const id = c.req.param('id'), sb = service(c.env); const { data: p } = await sb.from('products').select('image_path').eq('id', id).maybeSingle(); const { error } = await sb.from('products').delete().eq('id', id); if (error) throw error; if (p?.image_path) await sb.storage.from('product-images').remove([p.image_path]).catch(() => undefined); return c.json({ ok: true }) })
+app.post('/api/admin/products/:id/color-image', async c => {
+  const id = c.req.param('id')
+  if (!isUuid(id)) return c.json({ error: 'ID produk tidak valid.' }, 400)
+  const sb = service(c.env)
+  const body = await c.req.parseBody()
+  const color = cleanText(body.color, 60)
+  const file = body.file
+  if (!(file instanceof File)) return c.json({ error: 'Pilih file foto warna.' }, 400)
+  if (!color) return c.json({ error: 'Nama warna tidak boleh kosong.' }, 400)
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size === 0 || file.size > 5 * 1024 * 1024) {
+    return c.json({ error: 'Foto warna harus JPG, PNG, atau WebP dengan ukuran maksimal 5 MB.' }, 400)
+  }
+  const { data: p, error: getErr } = await sb.from('products').select('id,product_type,colors,color_images,color_image_paths').eq('id', id).maybeSingle()
+  if (getErr) throw getErr
+  if (!p) return c.json({ error: 'Produk tidak ditemukan.' }, 404)
+  if (p.product_type === 'emoney_card') return c.json({ error: 'Foto warna hanya untuk merchandise standar.' }, 400)
+  if (!Array.isArray(p.colors) || !p.colors.includes(color)) return c.json({ error: `Warna ${color} belum disimpan pada produk.` }, 400)
+  const path = randomPath(`products/${id}/colors`, file)
+  const { error: uploadError } = await sb.storage.from('product-images').upload(path, file, { contentType: file.type, upsert: false })
+  if (uploadError) throw uploadError
+  const { data: publicData } = sb.storage.from('product-images').getPublicUrl(path)
+  const oldPaths = plainStringMap(p.color_image_paths)
+  const oldPath = oldPaths[color]
+  const color_images = { ...plainStringMap(p.color_images), [color]: publicData.publicUrl }
+  const color_image_paths = { ...oldPaths, [color]: path }
+  const { data, error } = await sb.from('products').update({ color_images, color_image_paths }).eq('id', id).select().single()
+  if (error) {
+    await sb.storage.from('product-images').remove([path]).catch(() => undefined)
+    throw error
+  }
+  if (oldPath && oldPath !== path && oldPath.startsWith(`products/${id}/colors/`)) {
+    await sb.storage.from('product-images').remove([oldPath]).catch(() => undefined)
+  }
+  return c.json(data)
+})
+app.delete('/api/admin/products/:id', async c => {
+  const id = c.req.param('id'), sb = service(c.env)
+  const { data: p } = await sb.from('products').select('image_path,color_image_paths').eq('id', id).maybeSingle()
+  const { error } = await sb.from('products').delete().eq('id', id)
+  if (error) throw error
+  const paths = [p?.image_path, ...Object.values(plainStringMap(p?.color_image_paths))]
+    .filter((path): path is string => typeof path === 'string' && path.startsWith(`products/${id}/`))
+  if (paths.length) await sb.storage.from('product-images').remove(paths).catch(() => undefined)
+  return c.json({ ok: true })
+})
 
 app.get('/api/admin/pickup-locations', async c => { const { data, error } = await service(c.env).from('pickup_locations').select('*,pickup_slots(*)').order('name'); if (error) throw error; return c.json((data || []).map((p: any) => ({ ...p, slots: (p.pickup_slots || []).sort((a: any, b: any) => a.starts_at.localeCompare(b.starts_at)), pickup_slots: undefined }))) })
 app.post('/api/admin/pickup-locations', async c => { const b = await c.req.json(), row = pickupPayload(b); const { data, error } = await service(c.env).from('pickup_locations').insert(row).select().single(); if (error) throw error; return c.json(data, 201) })

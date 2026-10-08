@@ -10,6 +10,8 @@ export type Product = {
   base_price: number
   weight_grams: number
   image_url: string | null
+  color_images: Record<string, string>
+  color_image_paths?: Record<string, string>
   colors: string[]
   sizes: string[]
   active: boolean

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { BarChart3, CheckCircle2, CreditCard, Download, Edit3, KeyRound, LogOut, MapPin, Package, Plus, RefreshCw, Search, Settings, ShieldCheck, Trash2, Truck, UserCog, X } from 'lucide-react'
 import { adminApi } from './api'
+import { resolveProductImage } from './colorImages'
 import type { Order, PaymentMethod, PickupLocation, Product } from './types'
 import { dt, rupiah, slugify, statusLabel } from './utils'
 
@@ -228,10 +229,41 @@ function VariantEditor({ label, values, draft, onDraftChange, onChange, placehol
   </div>
 }
 
+function ColorPhotoField({ color, currentUrl, file, onFileChange }: {
+  color: string
+  currentUrl?: string | null
+  file?: File
+  onFileChange: (file: File | null) => void
+}) {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!file) { setPreviewUrl(null); return }
+    const url = URL.createObjectURL(file)
+    setPreviewUrl(url)
+    return () => URL.revokeObjectURL(url)
+  }, [file])
+  const shownUrl = previewUrl || currentUrl
+  return <div className="color-photo-row">
+    <div className="color-photo-preview">
+      {shownUrl ? <img src={shownUrl} alt={`Foto merchandise warna ${color}`}/> : <Package size={30}/>}
+    </div>
+    <div className="color-photo-meta">
+      <b>{color}</b>
+      <small>{file ? `Foto baru: ${file.name}` : currentUrl ? 'Foto warna sudah tersimpan' : 'Belum ada foto untuk warna ini'}</small>
+      <label className="color-photo-upload">
+        <span>{shownUrl ? 'Ganti foto warna' : 'Pilih foto warna'}</span>
+        <input type="file" accept="image/png,image/jpeg,image/webp" aria-label={`Upload foto warna ${color}`} onChange={e => onFileChange(e.target.files?.[0] || null)}/>
+      </label>
+      {file && <button type="button" className="color-photo-cancel" onClick={() => onFileChange(null)}>Batalkan foto baru</button>}
+    </div>
+  </div>
+}
+
 function ProductsAdmin() {
   const [items, setItems] = useState<Product[]>([])
   const [edit, setEdit] = useState<Partial<Product> | null>(null)
   const [image, setImage] = useState<File | null>(null)
+  const [colorPhotos, setColorPhotos] = useState<Record<string, File>>({})
   const [colorDraft, setColorDraft] = useState('')
   const [sizeDraft, setSizeDraft] = useState('')
   const [specDraft, setSpecDraft] = useState('')
@@ -247,6 +279,7 @@ function ProductsAdmin() {
   function startEditing(product: Partial<Product>) {
     setEdit({ ...product, colors: [...(product.colors || [])], sizes: [...(product.sizes || [])] })
     setImage(null)
+    setColorPhotos({})
     setColorDraft('')
     setSizeDraft('')
     setSpecDraft(Object.entries(product.specifications || {}).map(([k, v]) => `${k}=${v}`).join('\n'))
@@ -260,17 +293,33 @@ function ProductsAdmin() {
     setSaving(true)
     setError('')
     try {
+      const colors = edit.product_type === 'emoney_card' ? [] : addVariants(edit.colors || [], colorDraft)
+      const sizes = edit.product_type === 'emoney_card' ? [] : addVariants(edit.sizes || [], sizeDraft)
+      const missingPhotos = colors.filter(c => !colorPhotos[c] && !edit.color_images?.[c])
+      if (missingPhotos.length) {
+        throw new Error(`Upload foto untuk setiap warna terlebih dahulu: ${missingPhotos.join(', ')}. Jika baru mengetik warna, tekan Tambah agar kolom fotonya muncul.`)
+      }
+      const invalidFile = Object.entries(colorPhotos).find(([color, file]) => colors.includes(color) &&
+        (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size === 0 || file.size > 5 * 1024 * 1024))
+      if (invalidFile) throw new Error(`Foto ${invalidFile[0]} harus JPG, PNG, atau WebP, maksimal 5 MB.`)
       const saved = await adminApi.upsertProduct({
         ...edit,
         name: edit.name.trim(),
         slug: edit.slug?.trim() || slugify(edit.name),
         specifications: parseSpecifications(specDraft),
-        colors: edit.product_type === 'emoney_card' ? [] : addVariants(edit.colors || [], colorDraft),
-        sizes: edit.product_type === 'emoney_card' ? [] : addVariants(edit.sizes || [], sizeDraft)
+        colors,
+        sizes
       })
+      // Jika sebagian upload gagal, percobaan berikutnya mengedit produk yang sama (bukan membuat duplikat).
+      setEdit(saved)
       if (image) await adminApi.uploadProductImage(saved.id, image)
+      for (const color of colors) {
+        const file = colorPhotos[color]
+        if (file) await adminApi.uploadColorImage(saved.id, color, file)
+      }
       setEdit(null)
       setImage(null)
+      setColorPhotos({})
       setColorDraft('')
       setSizeDraft('')
       await load()
@@ -303,8 +352,29 @@ function ProductsAdmin() {
       {edit.product_type !== 'emoney_card' && <div className="product-editor-section">
         <h3>Varian produk</h3>
         <div className="variant-grid">
-          <VariantEditor label="Warna" values={edit.colors || []} draft={colorDraft} onDraftChange={setColorDraft} onChange={colors => setEdit(prev => prev ? { ...prev, colors } : prev)} placeholder="Contoh: Biru"/>
+          <VariantEditor label="Warna" values={edit.colors || []} draft={colorDraft} onDraftChange={setColorDraft} onChange={colors => {
+            setEdit(prev => prev ? { ...prev, colors } : prev)
+            setColorPhotos(prev => Object.fromEntries(Object.entries(prev).filter(([color]) => colors.includes(color))))
+          }} placeholder="Contoh: Biru"/>
           <VariantEditor label="Ukuran" values={edit.sizes || []} draft={sizeDraft} onDraftChange={setSizeDraft} onChange={sizes => setEdit(prev => prev ? { ...prev, sizes } : prev)} placeholder="Contoh: All Size"/>
+        </div>
+        <div className="color-photo-editor">
+          <div className="color-photo-heading"><h3>Foto untuk setiap warna</h3><span>1 warna = 1 foto</span></div>
+          <p>Tambahkan warna terlebih dahulu. Unggah foto sesuai warna sehingga gambar pada katalog dan keranjang berubah otomatis ketika pembeli memilih warna lain.</p>
+          {(edit.colors || []).length > 0
+            ? <div className="color-photo-list">{(edit.colors || []).map(color => <ColorPhotoField
+                key={color}
+                color={color}
+                currentUrl={edit.color_images?.[color]}
+                file={colorPhotos[color]}
+                onFileChange={file => setColorPhotos(prev => {
+                  const next = { ...prev }
+                  if (file) next[color] = file
+                  else delete next[color]
+                  return next
+                })}
+              />)}</div>
+            : <div className="color-photo-empty">Belum ada warna. Tambahkan warna di atas untuk mengunggah foto khusus setiap varian.</div>}
         </div>
       </div>}
       <div className="product-editor-section">
@@ -312,7 +382,7 @@ function ProductsAdmin() {
         <div className="form-grid two">
           <label className="span-2">Deskripsi produk<textarea rows={3} value={edit.description || ''} onChange={e => setEdit({ ...edit, description: e.target.value })}/></label>
           <label className="span-2">Spesifikasi produk<textarea rows={4} value={specDraft} onChange={e => setSpecDraft(e.target.value)} placeholder={'Bahan=Polyester\nDiameter=95 cm\nMekanisme=Auto open'}/></label>
-          <label>Foto produk<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => setImage(e.target.files?.[0] || null)}/></label>
+          <label>Foto utama (cadangan)<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => setImage(e.target.files?.[0] || null)}/><small>Untuk produk dengan pilihan warna, upload foto masing-masing warna pada bagian Varian produk.</small></label>
           <div className="product-editor-flags"><label><input type="checkbox" checked={!!edit.active} onChange={e => setEdit({ ...edit, active: e.target.checked })}/> Aktif dijual</label><label><input type="checkbox" checked={!!edit.featured} onChange={e => setEdit({ ...edit, featured: e.target.checked })}/> Produk unggulan</label></div>
         </div>
       </div>
@@ -320,14 +390,14 @@ function ProductsAdmin() {
     </div>}
     <div className="admin-products-toolbar"><div className="search-box"><Search size={17}/><input aria-label="Cari produk" placeholder="Cari produk atau varian..." value={search} onChange={e => setSearch(e.target.value)}/></div><span className="admin-products-total">{filtered.length} dari {items.length} produk</span></div>
     {filtered.length ? <div className="admin-card-grid">{filtered.map(product => <article className="admin-product-card panel" key={product.id}>
-      <div className="admin-product-img">{product.image_url ? <img src={product.image_url} alt={product.name} loading="lazy"/> : <Package size={54}/>}</div>
+      <div className="admin-product-img">{resolveProductImage(product, product.colors?.[0]) ? <img src={resolveProductImage(product, product.colors?.[0]) || ''} alt={product.name} loading="lazy"/> : <Package size={54}/>}</div>
       <div className="admin-product-info">
         <div className="admin-product-flags"><span className={`admin-product-status ${product.active ? 'is-active' : 'is-inactive'}`}>{product.active ? 'Aktif' : 'Nonaktif'}</span><span className="admin-product-type">{product.product_type === 'emoney_card' ? 'E-money custom' : 'Merchandise'}</span></div>
         <h3 title={product.name}>{product.name}</h3>
         <strong className="admin-product-price">{rupiah(product.base_price)}</strong>
         <div className="admin-product-weight">{product.weight_grams} gram</div>
         {product.product_type !== 'emoney_card' && <div className="admin-product-variants">
-          <div><b>Warna</b><span>{product.colors?.length ? product.colors.join(', ') : '—'}</span></div>
+          <div><b>Warna</b><span>{product.colors?.length ? product.colors.join(', ') : '—'}{product.colors?.length ? ` · ${product.colors.filter(color => !!product.color_images?.[color]).length}/${product.colors.length} foto` : ''}</span></div>
           <div><b>Ukuran</b><span>{product.sizes?.length ? product.sizes.join(', ') : '—'}</span></div>
         </div>}
       </div>
