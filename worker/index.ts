@@ -410,6 +410,28 @@ app.post('/api/admin/orders/:id/tracking', async c => { const id = c.req.param('
 app.post('/api/admin/orders/:id/complete', async c => { const id = c.req.param('id'); const sb = service(c.env); const now = new Date().toISOString(); const { data, error } = await sb.from('orders').update({ status: 'completed', completed_at: now, updated_at: now }).eq('id', id).neq('status', 'new').select().single(); if (error) throw error; await sb.from('order_status_history').insert({ order_id: id, status: 'completed', note: `Diselesaikan admin ${c.get('adminUsername')}` }); return c.json(data) })
 app.get('/api/admin/orders/:id/payment-proof-url', async c => { const { data: o } = await service(c.env).from('orders').select('payment_proof_path').eq('id', c.req.param('id')).maybeSingle(); if (!o?.payment_proof_path) return c.json({ error: 'Bukti bayar belum tersedia.' }, 404); const { data, error } = await service(c.env).storage.from('payment-proofs').createSignedUrl(o.payment_proof_path, 3600); if (error) throw error; return c.json({ url: data.signedUrl }) })
 
+// Diagnostik aman: tanpa menampilkan token atau service-role key.
+app.get('/api/admin/products/upload-check', async c => {
+  const sb = service(c.env)
+  const { error: productError } = await sb.from('products').select('id,color_images,color_image_paths').limit(1)
+  const { data: bucket, error: bucketError } = await sb.storage.getBucket('product-images')
+  const mimeTypes = bucket?.allowed_mime_types || []
+  const checks = {
+    product_columns: !productError,
+    storage_bucket: !bucketError && !!bucket,
+    storage_public: !!bucket?.public,
+    storage_file_limit: !!bucket && (bucket.file_size_limit == null || Number(bucket.file_size_limit) >= 5 * 1024 * 1024),
+    storage_image_mime: !!bucket && (!mimeTypes.length || ['image/png', 'image/jpeg', 'image/webp'].every(m => mimeTypes.includes(m)))
+  }
+  const problems: string[] = []
+  if (productError) problems.push(`Kolom foto warna bermasalah: ${productError.message} (${productError.code || 'DB'})`)
+  if (bucketError || !bucket) problems.push(`Bucket product-images tidak ditemukan/dapat dibaca: ${bucketError?.message || 'Belum tersedia'}`)
+  if (bucket && !checks.storage_public) problems.push('Bucket product-images harus public agar foto katalog dapat dilihat pembeli.')
+  if (bucket && !checks.storage_file_limit) problems.push('Batas ukuran bucket harus minimal 5 MB.')
+  if (bucket && !checks.storage_image_mime) problems.push('Bucket belum mengizinkan format PNG/JPEG/WebP.')
+  c.header('Cache-Control', 'no-store')
+  return c.json({ ok: Object.values(checks).every(Boolean), checks, problems })
+})
 app.get('/api/admin/products', async c => { const { data, error } = await service(c.env).from('products').select('*').order('created_at', { ascending: false }); if (error) throw error; return c.json(data || []) })
 app.post('/api/admin/products', async c => { const b = await c.req.json(); const row = productPayload(b); const { data, error } = await service(c.env).from('products').insert(row).select().single(); if (error) throw error; return c.json(data, 201) })
 app.put('/api/admin/products/:id', async c => {
@@ -463,10 +485,26 @@ function productPayload(b: any) {
   }
 }
 app.post('/api/admin/products/:id/image', async c => { const id = c.req.param('id'), sb = service(c.env); const { data: p } = await sb.from('products').select('id,image_path').eq('id', id).maybeSingle(); if (!p) return c.json({ error: 'Produk tidak ditemukan.' }, 404); const body = await c.req.parseBody(), file = body.file; if (!(file instanceof File)) return c.json({ error: 'Pilih file foto.' }, 400); allowedUpload(file, 'image'); const path = randomPath(`products/${id}`, file); const { error: up } = await sb.storage.from('product-images').upload(path, file, { contentType: file.type }); if (up) throw up; const { data: url } = sb.storage.from('product-images').getPublicUrl(path); if (p.image_path) await sb.storage.from('product-images').remove([p.image_path]).catch(() => undefined); const { data, error } = await sb.from('products').update({ image_path: path, image_url: url.publicUrl, updated_at: new Date().toISOString() }).eq('id', id).select().single(); if (error) throw error; return c.json(data) })
+function explainColorUploadError(error: unknown, step: 'database' | 'storage' | 'save'): { error: string; code?: string } {
+  const problem = error && typeof error === 'object' ? error as { message?: unknown; error?: unknown; code?: unknown; status?: unknown } : {}
+  const message = typeof problem.message === 'string' ? problem.message :
+    typeof problem.error === 'string' ? problem.error :
+    error instanceof Error ? error.message : 'Terjadi kesalahan yang tidak diketahui.'
+  const code = typeof problem.code === 'string' ? problem.code : undefined
+  const text = `${message} ${code || ''}`.toLowerCase()
+  let explanation = step === 'storage' ? 'Gagal mengunggah foto ke Supabase Storage.' :
+    step === 'save' ? 'Foto terunggah, tetapi gagal mengaitkannya ke produk.' :
+    'Gagal membaca informasi produk dari database.'
+  if (/bucket not found|not found.*bucket/.test(text)) explanation = 'Bucket product-images belum tersedia pada proyek Supabase.'
+  else if (/payload too large|exceeded|too large|maximum allowed|size limit|entity too large/.test(text)) explanation = 'Ukuran foto melebihi batas Supabase Storage (maksimal 5 MB).'
+  else if (/mime|media type|content.type|invalid file type/.test(text)) explanation = 'Jenis file tidak diizinkan oleh bucket. Gunakan JPEG, PNG, atau WebP.'
+  else if (/row.level.security|permission denied|unauthorized|forbidden|invalid jwt|403/.test(text)) explanation = 'Supabase Storage menolak izin upload. Periksa service-role key dan kebijakan bucket.'
+  else if (/column .* does not exist|schema cache|pgrst204|42703/.test(text)) explanation = 'Kolom foto warna belum sesuai. Jalankan migrasi 005 dan tunggu pembaruan schema cache Supabase.'
+  return { error: `${explanation} ${message}`.trim(), ...(code ? { code } : {}) }
+}
 app.post('/api/admin/products/:id/color-image', async c => {
   const id = c.req.param('id')
   if (!isUuid(id)) return c.json({ error: 'ID produk tidak valid.' }, 400)
-  const sb = service(c.env)
   const body = await c.req.parseBody()
   const color = cleanText(body.color, 60)
   const file = body.file
@@ -475,14 +513,23 @@ app.post('/api/admin/products/:id/color-image', async c => {
   if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size === 0 || file.size > 5 * 1024 * 1024) {
     return c.json({ error: 'Foto warna harus JPG, PNG, atau WebP dengan ukuran maksimal 5 MB.' }, 400)
   }
+
+  const sb = service(c.env)
   const { data: p, error: getErr } = await sb.from('products').select('id,product_type,colors,color_images,color_image_paths').eq('id', id).maybeSingle()
-  if (getErr) throw getErr
+  if (getErr) {
+    console.error('[KM11 warna] gagal membaca produk:', getErr)
+    return c.json(explainColorUploadError(getErr, 'database'), 500)
+  }
   if (!p) return c.json({ error: 'Produk tidak ditemukan.' }, 404)
   if (p.product_type === 'emoney_card') return c.json({ error: 'Foto warna hanya untuk merchandise standar.' }, 400)
   if (!Array.isArray(p.colors) || !p.colors.includes(color)) return c.json({ error: `Warna ${color} belum disimpan pada produk.` }, 400)
+
   const path = randomPath(`products/${id}/colors`, file)
   const { error: uploadError } = await sb.storage.from('product-images').upload(path, file, { contentType: file.type, upsert: false })
-  if (uploadError) throw uploadError
+  if (uploadError) {
+    console.error(`[KM11 warna] gagal upload ${color}:`, uploadError)
+    return c.json(explainColorUploadError(uploadError, 'storage'), 500)
+  }
   const { data: publicData } = sb.storage.from('product-images').getPublicUrl(path)
   const oldPaths = plainStringMap(p.color_image_paths)
   const oldPath = oldPaths[color]
@@ -490,11 +537,14 @@ app.post('/api/admin/products/:id/color-image', async c => {
   const color_image_paths = { ...oldPaths, [color]: path }
   const { data, error } = await sb.from('products').update({ color_images, color_image_paths }).eq('id', id).select().single()
   if (error) {
-    await sb.storage.from('product-images').remove([path]).catch(() => undefined)
-    throw error
+    console.error(`[KM11 warna] gagal menyimpan foto ${color}:`, error)
+    const { error: cleanupErr } = await sb.storage.from('product-images').remove([path])
+    if (cleanupErr) console.error('[KM11 warna] gagal rollback foto baru:', cleanupErr)
+    return c.json(explainColorUploadError(error, 'save'), 500)
   }
   if (oldPath && oldPath !== path && oldPath.startsWith(`products/${id}/colors/`)) {
-    await sb.storage.from('product-images').remove([oldPath]).catch(() => undefined)
+    const { error: cleanupErr } = await sb.storage.from('product-images').remove([oldPath])
+    if (cleanupErr) console.error('[KM11 warna] gagal bersihkan foto lama:', cleanupErr)
   }
   return c.json(data)
 })
@@ -528,6 +578,15 @@ app.get('/api/admin/settings', async c => { return c.json(await getSettings(c.en
 app.put('/api/admin/settings', async c => { const b = await c.req.json(); const allowed = ['shipping_origin_id', 'shipping_origin_label', 'shipping_couriers']; const rows = allowed.map(key => ({ key, value: cleanText(b[key], 500), updated_at: new Date().toISOString() })); const { error } = await service(c.env).from('app_settings').upsert(rows, { onConflict: 'key' }); if (error) throw error; return c.json(await getSettings(c.env)) })
 
 app.notFound(c => c.json({ error: 'API endpoint tidak ditemukan.' }, 404))
-app.onError((err, c) => { console.error(err); const msg = (err as any)?.message || 'Terjadi kesalahan pada server.'; const status = /wajib|tidak valid|harus|belum lengkap/i.test(msg) ? 400 : 500; return c.json({ error: msg }, status as 400 | 500) })
+app.onError((err, c) => {
+  console.error('[KM11 API error]', err)
+  const detail = err && typeof err === 'object' ? err as { message?: unknown; error?: unknown; code?: unknown } : {}
+  const msg = typeof detail.message === 'string' ? detail.message :
+    typeof detail.error === 'string' ? detail.error :
+    err instanceof Error ? err.message : 'Terjadi kesalahan pada server.'
+  const code = typeof detail.code === 'string' ? detail.code : undefined
+  const status = /wajib|tidak valid|harus|belum lengkap/i.test(msg) ? 400 : 500
+  return c.json({ error: msg, ...(code ? { code } : {}) }, status as 400 | 500)
+})
 
 export default app

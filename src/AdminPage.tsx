@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { BarChart3, CheckCircle2, CreditCard, Download, Edit3, KeyRound, LogOut, MapPin, Package, Plus, RefreshCw, Search, Settings, ShieldCheck, Trash2, Truck, UserCog, X } from 'lucide-react'
 import { adminApi } from './api'
+import { readableApiError } from './apiError'
 import { resolveProductImage } from './colorImages'
 import type { Order, PaymentMethod, PickupLocation, Product } from './types'
 import { dt, rupiah, slugify, statusLabel } from './utils'
@@ -270,6 +271,17 @@ function ProductsAdmin() {
   const [search, setSearch] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [saveStep, setSaveStep] = useState('')
+  const [uploadCheck, setUploadCheck] = useState<{ ok: boolean; checks: Record<string, boolean>; problems: string[] } | null>(null)
+  const [checkingUpload, setCheckingUpload] = useState(false)
+
+  async function checkUpload() {
+    setCheckingUpload(true)
+    setError('')
+    try { setUploadCheck(await adminApi.productUploadCheck()) }
+    catch (e) { setUploadCheck(null); setError(`Pemeriksaan penyimpanan: ${readableApiError(e) || 'Tidak dapat diakses.'}`) }
+    finally { setCheckingUpload(false) }
+  }
 
   async function load() {
     try { setItems(await adminApi.products()) } catch (e) { setError((e as Error).message) }
@@ -291,6 +303,7 @@ function ProductsAdmin() {
     if (!edit || saving) return
     if (!edit.name?.trim()) { setError('Nama produk wajib diisi.'); return }
     setSaving(true)
+    setSaveStep('Memeriksa data produk…')
     setError('')
     try {
       const colors = edit.product_type === 'emoney_card' ? [] : addVariants(edit.colors || [], colorDraft)
@@ -302,7 +315,9 @@ function ProductsAdmin() {
       const invalidFile = Object.entries(colorPhotos).find(([color, file]) => colors.includes(color) &&
         (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type) || file.size === 0 || file.size > 5 * 1024 * 1024))
       if (invalidFile) throw new Error(`Foto ${invalidFile[0]} harus JPG, PNG, atau WebP, maksimal 5 MB.`)
-      const saved = await adminApi.upsertProduct({
+
+      setSaveStep('Menyimpan data produk…')
+      let saved = await adminApi.upsertProduct({
         ...edit,
         name: edit.name.trim(),
         slug: edit.slug?.trim() || slugify(edit.name),
@@ -310,21 +325,38 @@ function ProductsAdmin() {
         colors,
         sizes
       })
-      // Jika sebagian upload gagal, percobaan berikutnya mengedit produk yang sama (bukan membuat duplikat).
+      // Setelah produk tersimpan, pertahankan ID agar percobaan ulang tidak membuat duplikat.
       setEdit(saved)
-      if (image) await adminApi.uploadProductImage(saved.id, image)
+      if (image) {
+        setSaveStep('Mengunggah foto utama…')
+        try { saved = await adminApi.uploadProductImage(saved.id, image) }
+        catch (e) { throw new Error(`Foto utama: ${readableApiError(e) || 'Upload gagal.'}`) }
+        setEdit(saved)
+        setImage(null)
+      }
       for (const color of colors) {
         const file = colorPhotos[color]
-        if (file) await adminApi.uploadColorImage(saved.id, color, file)
+        if (!file) continue
+        setSaveStep(`Mengunggah foto warna ${color}…`)
+        try { saved = await adminApi.uploadColorImage(saved.id, color, file) }
+        catch (e) { throw new Error(`Foto warna ${color}: ${readableApiError(e) || 'Upload gagal.'}`) }
+        // Sinkronkan data remote + hapus antrian hanya untuk foto yang berhasil.
+        setEdit(saved)
+        setColorPhotos(prev => { const next = { ...prev }; delete next[color]; return next })
       }
       setEdit(null)
       setImage(null)
       setColorPhotos({})
       setColorDraft('')
       setSizeDraft('')
+      setSaveStep('Menyegarkan daftar produk…')
       await load()
-    } catch (e) { setError((e as Error).message) }
-    finally { setSaving(false) }
+    } catch (e) {
+      setError(`${saveStep ? 'Gagal menyimpan produk. ' : ''}${readableApiError(e) || 'Kesalahan tidak diketahui. Gunakan tombol Periksa penyimpanan untuk diagnosis.'}`)
+    } finally {
+      setSaveStep('')
+      setSaving(false)
+    }
   }
 
   async function remove(product: Product) {
@@ -336,7 +368,16 @@ function ProductsAdmin() {
   const filtered = items.filter(product => `${product.name} ${product.slug} ${product.colors?.join(' ')} ${product.sizes?.join(' ')}`.toLocaleLowerCase('id-ID').includes(search.toLocaleLowerCase('id-ID')))
   return <>
     <AdminHeader title="Produk" actions={<button className="primary" onClick={() => startEditing({ name: '', slug: '', description: '', base_price: 0, weight_grams: 50, colors: [], sizes: [], active: true, featured: false, specifications: {}, product_type: 'standard' })}><Plus size={17}/> Tambah produk</button>}/>
-    {error && <div className="alert error">{error}</div>}
+    {error && <div className="alert error" role="alert">{error}</div>}
+    <div className="product-upload-diagnostic">
+      <button type="button" className="secondary" onClick={checkUpload} disabled={checkingUpload}>
+        {checkingUpload ? 'Memeriksa…' : 'Periksa penyimpanan foto'}
+      </button>
+      {uploadCheck && <div className={`product-upload-check ${uploadCheck.ok ? 'is-ok' : 'is-error'}`}>
+        {uploadCheck.ok ? 'Database dan bucket foto tampak siap.' : 'Ditemukan masalah konfigurasi penyimpanan:'}
+        {uploadCheck.problems.length > 0 && <ul>{uploadCheck.problems.map((issue, i) => <li key={i}>{issue}</li>)}</ul>}
+      </div>}
+    </div>
     {edit && <div className="panel editor product-editor" id="km11-product-editor">
       <div className="product-editor-top"><div><span className="eyebrow">Manajemen produk</span><h2>{edit.id ? 'Edit produk' : 'Tambah produk'}</h2></div><button type="button" className="product-editor-close" onClick={() => setEdit(null)} aria-label="Tutup form produk"><X size={19}/></button></div>
       <div className="product-editor-section">
@@ -386,7 +427,7 @@ function ProductsAdmin() {
           <div className="product-editor-flags"><label><input type="checkbox" checked={!!edit.active} onChange={e => setEdit({ ...edit, active: e.target.checked })}/> Aktif dijual</label><label><input type="checkbox" checked={!!edit.featured} onChange={e => setEdit({ ...edit, featured: e.target.checked })}/> Produk unggulan</label></div>
         </div>
       </div>
-      <div className="button-row product-editor-actions"><button type="button" className="primary" disabled={saving} onClick={save}>{saving ? 'Menyimpan…' : 'Simpan produk'}</button><button type="button" className="secondary" disabled={saving} onClick={() => setEdit(null)}>Batal</button></div>
+      <div className="button-row product-editor-actions"><button type="button" className="primary" disabled={saving} onClick={save}>{saving ? (saveStep || 'Menyimpan…') : 'Simpan produk'}</button><button type="button" className="secondary" disabled={saving} onClick={() => setEdit(null)}>Batal</button></div>
     </div>}
     <div className="admin-products-toolbar"><div className="search-box"><Search size={17}/><input aria-label="Cari produk" placeholder="Cari produk atau varian..." value={search} onChange={e => setSearch(e.target.value)}/></div><span className="admin-products-total">{filtered.length} dari {items.length} produk</span></div>
     {filtered.length ? <div className="admin-card-grid">{filtered.map(product => <article className="admin-product-card panel" key={product.id}>

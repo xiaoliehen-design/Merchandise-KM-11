@@ -115,3 +115,10 @@
 .color-photo-empty{padding:18px;border:1px dashed #cbdcf3;border-radius:12px;color:var(--muted);font-size:12px;background:white}
 @media(max-width:900px){.color-photo-list{grid-template-columns:1fr}}
 @media(max-width:480px){.color-photo-row{gap:9px}.color-photo-preview{width:82px;height:95px}}
+
+/* KM11 variant upload diagnostics: clear status and progress without exposing secrets */
+.product-upload-diagnostic{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;margin:8px 0 17px}
+.product-upload-diagnostic>.secondary{min-height:38px;font-size:12px}
+.product-upload-check{flex:1 1 340px;padding:10px 13px;border:1px solid #cbdcf5;border-radius:12px;background:#f3f8ff;color:#204678;font-size:12px;line-height:1.5}
+.product-upload-check.is-error{border-color:#ffd1d6;background:#fff2f2;color:#9a2130}
+.product-upload-check ul{margin:6px 0 0;padding-left:18px}

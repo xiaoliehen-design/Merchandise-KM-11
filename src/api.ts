@@ -1,3 +1,4 @@
+import { readableApiError } from './apiError'
 import type { CartItem, Order, PaymentMethod, PickupLocation, Product, ShippingQuote } from './types'
 
 const API = '/api'
@@ -29,8 +30,10 @@ async function parse<T>(res: Response): Promise<T> {
   const contentType = res.headers.get('content-type') || ''
   const body = contentType.includes('application/json') ? await res.json() : await res.text()
   if (!res.ok) {
-    const msg = typeof body === 'object' && body && 'error' in body ? String((body as { error: unknown }).error) : String(body)
-    throw new Error(msg || `HTTP ${res.status}`)
+    const msg = readableApiError(body) || `Permintaan gagal (${res.status}).`
+    const code = body && typeof body === 'object' && 'code' in body && typeof body.code === 'string'
+      ? ` [${body.code}]` : ''
+    throw new Error(`${msg}${code}`)
   }
   return body as T
 }
@@ -113,6 +116,7 @@ export const adminApi = {
   complete: (id: string) => apiJson<Order>(`/admin/orders/${id}/complete`, 'POST', {}),
   paymentProofUrl: (id: string) => apiGet<{ url: string }>(`/admin/orders/${id}/payment-proof-url`),
   products: () => apiGet<Product[]>('/admin/products'),
+  productUploadCheck: () => apiGet<{ ok: boolean; checks: Record<string, boolean>; problems: string[] }>('/admin/products/upload-check'),
   upsertProduct: (payload: Partial<Product> & { id?: string }) => apiJson<Product>(payload.id ? `/admin/products/${payload.id}` : '/admin/products', payload.id ? 'PUT' : 'POST', payload),
   uploadProductImage: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return apiForm<Product>(`/admin/products/${id}/image`, f) },
   uploadColorImage: (id: string, color: string, file: File) => { const f = new FormData(); f.append('color', color); f.append('file', file); return apiForm<Product>(`/admin/products/${id}/color-image`, f) },
