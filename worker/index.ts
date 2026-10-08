@@ -203,7 +203,7 @@ app.post('/api/orders', async c => {
       previewDataUrl
     }
   })
-  const itemRows = preparedItems.map(x => x.row)
+  const itemRows = preparedItems.map((x: any) => x.row)
   const fulfillmentType = b.fulfillmentType === 'pickup' ? 'pickup' : 'ship'
   let shippingCost = 0, shippingCourier: string | null = null, shippingService: string | null = null, destinationId: string | null = null, destinationLabel: string | null = null, pickupLocationId: string | null = null, pickupSlotId: string | null = null
   if (fulfillmentType === 'ship') {
@@ -232,7 +232,7 @@ app.post('/api/orders', async c => {
   const { data: created, error: createErr } = await sb.rpc('create_order_atomic', { p_order: { full_name: fullName, email, phone, address: fulfillmentType === 'ship' ? address : null, fulfillment_type: fulfillmentType, pickup_location_id: pickupLocationId, pickup_slot_id: pickupSlotId, shipping_destination_id: destinationId, shipping_destination_label: destinationLabel, shipping_courier: shippingCourier, shipping_service: shippingService, shipping_cost: shippingCost, subtotal, total, payment_method_id: pay.id, payment_method_name: pay.name, payment_upload_token_hash: paymentUploadTokenHash }, p_items: itemRows })
   if (createErr) throw createErr
   const row = Array.isArray(created) ? created[0] : created
-  if (preparedItems.some(x => x.customization && x.previewDataUrl)) {
+  if (preparedItems.some((x: any) => x.customization && x.previewDataUrl)) {
     const { data: insertedItems, error: itemsErr } = await sb.from('order_items').select('id').eq('order_id', row.order_id).order('created_at', { ascending: true })
     if (itemsErr) throw itemsErr
     for (let idx = 0; idx < preparedItems.length; idx++) {
