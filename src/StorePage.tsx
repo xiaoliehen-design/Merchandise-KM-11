@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, CreditCard, Minus, Plus, ShoppingCart, Sparkles, X } from 'lucide-react'
 import { catalogApi } from './api'
 import { useCart } from './CartContext'
-import { EMONEY_BACK_URL, EMONEY_TEMPLATES, defaultEmoneyCustomization, drawEmoneyTemplate, renderEmoneyDataUrl, renderEmoneyPreview } from './emoney'
+import { EMONEY_BACK_URL, EMONEY_TEMPLATES, defaultEmoneyCustomization, drawEmoneyBaseTemplate, renderEmoneyDataUrl, renderEmoneyPreview } from './emoney'
 import type { Product } from './types'
 import { rupiah } from './utils'
 
@@ -49,7 +49,7 @@ function TemplateThumb({ templateId, active, onClick }: { templateId: string; ac
   useEffect(() => {
     const canvas = ref.current
     if (!canvas) return
-    drawEmoneyTemplate(canvas, templateId).catch(() => undefined)
+    drawEmoneyBaseTemplate(canvas, templateId).catch(() => undefined)
   }, [templateId])
   const label = EMONEY_TEMPLATES.find(t => t.id === templateId)?.label || templateId
   return <button type="button" className={`template-thumb ${active ? 'active' : ''}`} onClick={onClick}>

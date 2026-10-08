@@ -24,10 +24,10 @@ export const EMONEY_BACK_URL = '/emoney/back-template-info.png'
 const CARD_BLUE = '#3967b6'
 
 export const EMONEY_TEMPLATES: EmoneyTemplate[] = [
-  { id: 'em1', label: 'Template 1', crop: { x: 20, y: 20, w: 170, h: 318 } },
-  { id: 'em2', label: 'Template 2', crop: { x: 220, y: 20, w: 170, h: 318 } },
-  { id: 'em3', label: 'Template 3', crop: { x: 20, y: 360, w: 170, h: 318 } },
-  { id: 'em4', label: 'Template 4', crop: { x: 220, y: 360, w: 170, h: 318 } }
+  { id: 'em1', label: 'Template 1', crop: { x: 20, y: 20, w: 201, h: 321 } },
+  { id: 'em2', label: 'Template 2', crop: { x: 241, y: 20, w: 201, h: 321 } },
+  { id: 'em3', label: 'Template 3', crop: { x: 20, y: 341, w: 201, h: 321 } },
+  { id: 'em4', label: 'Template 4', crop: { x: 241, y: 341, w: 201, h: 321 } }
 ]
 
 const imageCache = new Map<string, Promise<HTMLImageElement>>()
@@ -67,7 +67,7 @@ function sanitizeName(name: string) {
   return name.trim().replace(/\s+/g, ' ').slice(0, 28)
 }
 
-export async function drawEmoneyTemplate(canvas: HTMLCanvasElement, templateId: string) {
+export async function drawEmoneyBaseTemplate(canvas: HTMLCanvasElement, templateId: string) {
   const template = EMONEY_TEMPLATES.find(t => t.id === templateId) || EMONEY_TEMPLATES[0]
   const sprite = await loadImage(EMONEY_SPRITE_URL)
   canvas.width = EMONEY_CANVAS.width
@@ -76,10 +76,14 @@ export async function drawEmoneyTemplate(canvas: HTMLCanvasElement, templateId: 
   if (!ctx) throw new Error('Canvas tidak tersedia.')
   ctx.clearRect(0, 0, canvas.width, canvas.height)
   ctx.drawImage(sprite, template.crop.x, template.crop.y, template.crop.w, template.crop.h, 0, 0, canvas.width, canvas.height)
-  // cover the right-side role text and the original placeholder name/position area
+  return ctx
+}
+
+export async function drawEmoneyTemplate(canvas: HTMLCanvasElement, templateId: string) {
+  const ctx = await drawEmoneyBaseTemplate(canvas, templateId)
+  // rapikan area placeholder teks di bagian bawah, tanpa mengubah identitas template utama.
   ctx.fillStyle = CARD_BLUE
-  ctx.fillRect(canvas.width * 0.72, canvas.height * 0.02, canvas.width * 0.25, canvas.height * 0.14)
-  ctx.fillRect(0, canvas.height * 0.82, canvas.width, canvas.height * 0.18)
+  ctx.fillRect(0, canvas.height * 0.80, canvas.width, canvas.height * 0.20)
   return ctx
 }
 
