@@ -22,7 +22,7 @@ function anon(env: Bindings): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
 }
 const REQUIRED_BINDINGS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'CART_SECRET'] as const
-const WORKER_REVISION = 'km11-config-check-2026-10-08-v1'
+const WORKER_REVISION = 'km11-login-diagnostics-2026-10-08-v2'
 
 // Report names only; environment values and secrets must never be returned to visitors.
 function missingBindings(env: Bindings | undefined): string[] {
@@ -313,11 +313,53 @@ app.get('/api/track/:receipt', async c => {
 })
 
 app.post('/api/admin/login', async c => {
-  const b = await c.req.json().catch(() => ({})); const username = cleanText(b.username, 80).toLowerCase(), password = String(b.password || '')
+  c.header('Cache-Control', 'no-store')
+  const b = await c.req.json().catch(() => ({}))
+  const username = cleanText(b.username, 80).toLowerCase()
+  const password = typeof b.password === 'string' ? b.password : ''
   if (!username || !password) return c.json({ error: 'Username dan password wajib diisi.' }, 400)
-  const sb = service(c.env); const { data: adm } = await sb.from('admins').select('username,auth_email,active').eq('username_lower', username).eq('active', true).maybeSingle(); if (!adm) return c.json({ error: 'Username atau password salah.' }, 401)
-  const { data, error } = await anon(c.env).auth.signInWithPassword({ email: adm.auth_email, password }); if (error || !data.session) return c.json({ error: 'Username atau password salah.' }, 401)
-  return c.json({ access_token: data.session.access_token, refresh_token: data.session.refresh_token, expires_in: data.session.expires_in, username: adm.username })
+
+  // Database or service-role configuration errors must NOT be reported as wrong passwords.
+  const { data: adm, error: lookupError } = await service(c.env)
+    .from('admins')
+    .select('username,auth_email,auth_user_id,active')
+    .eq('username_lower', username)
+    .eq('active', true)
+    .maybeSingle()
+  if (lookupError) {
+    console.error('KM11 admin login: admins lookup failed', { code: lookupError.code, message: lookupError.message })
+    return c.json({ error: 'Koneksi database admin bermasalah. Periksa SUPABASE_URL dan SUPABASE_SERVICE_ROLE_KEY pada Cloudflare Runtime Production.' }, 502)
+  }
+  if (!adm?.auth_email || !adm?.auth_user_id) return c.json({ error: 'Username atau password salah.' }, 401)
+
+  const { data, error: authError } = await anon(c.env).auth.signInWithPassword({
+    email: adm.auth_email,
+    password
+  })
+  if (authError) {
+    // Do not echo credentials, email, tokens or raw provider errors to browser.
+    console.error('KM11 admin login: auth request rejected', { status: authError.status, code: authError.code, name: authError.name })
+    const reason = String(authError.code || '').toLowerCase()
+    const message = String(authError.message || '').toLowerCase()
+    if (reason === 'email_not_confirmed' || message.includes('email not confirmed')) {
+      return c.json({ error: 'Email akun admin belum dikonfirmasi di Supabase Authentication. Hubungi pengelola admin.' }, 403)
+    }
+    if (message.includes('invalid api key') || message.includes('jwt') || message.includes('api key') || authError.status >= 500) {
+      return c.json({ error: 'Konfigurasi Supabase Auth bermasalah. Periksa SUPABASE_ANON_KEY dan SUPABASE_URL pada Cloudflare Runtime Production.' }, 502)
+    }
+    return c.json({ error: 'Username atau password salah.' }, 401)
+  }
+  if (!data.session || !data.user || data.user.id !== adm.auth_user_id) {
+    // Prevent a login from being granted if Auth and public.admins are mismatched.
+    console.error('KM11 admin login: session missing or Auth ID differs from admin mapping')
+    return c.json({ error: 'Akun admin belum terhubung dengan benar ke Supabase Auth. Hubungi pengelola admin.' }, 403)
+  }
+  return c.json({
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+    expires_in: data.session.expires_in,
+    username: adm.username
+  })
 })
 app.post('/api/admin/refresh', async c => { const b = await c.req.json().catch(() => ({})); const refresh = cleanText(b.refreshToken, 1000); if (!refresh) return c.json({ error: 'Refresh token diperlukan.' }, 400); const { data, error } = await anon(c.env).auth.refreshSession({ refresh_token: refresh }); if (error || !data.session) return c.json({ error: 'Sesi admin berakhir. Login kembali.' }, 401); return c.json({ access_token: data.session.access_token, refresh_token: data.session.refresh_token, expires_in: data.session.expires_in }) })
 app.get('/api/admin/me', async c => {

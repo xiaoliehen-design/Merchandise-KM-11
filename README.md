@@ -178,7 +178,7 @@ They are used in the landing hero and as inactive demo product references. They 
 
 Read **`CLOUDFLARE_FIX_GUIDE.md`** for a step-by-step diagnosis. The repository now contains `keep_vars: true` to avoid overwriting dashboard-managed Worker variables during a Wrangler deploy.
 
-After deploying the new version, open `https://YOUR_LIVE_DOMAIN/api/health` in a browser. Confirm `revision` is `km11-config-check-2026-10-08-v1`, `configured` is `true`, and `missing_bindings` is empty. This endpoint exposes only the **names** of missing environment variables, never their values.
+After deploying the new version, open `https://YOUR_LIVE_DOMAIN/api/health` in a browser. Confirm `revision` is `km11-login-diagnostics-2026-10-08-v2`, `configured` is `true`, and `missing_bindings` is empty. This endpoint exposes only the **names** of missing environment variables, never their values.
 
 ## Pembaruan gambar landing page — 8 Oktober 2026
 
@@ -187,3 +187,12 @@ After deploying the new version, open `https://YOUR_LIVE_DOMAIN/api/health` in a
 - Tampilan hero memiliki rasio 4:3 dan `object-fit: contain`, sehingga gambar tidak terpotong pada desktop maupun ponsel.
 - Komponen katalog, keranjang, admin, Worker, dan konfigurasi Supabase tidak berubah.
 - Deploy ulang versi ini melalui GitHub/Cloudflare dan hard refresh jika website masih menampilkan hero lama.
+
+
+## Diagnosis login admin (KM11, Oktober 2026)
+
+Jika akun Supabase Auth + `admins` terdaftar namun login menampilkan "Username atau password salah",
+lihat panduan [`LOGIN_TROUBLESHOOTING.md`](./LOGIN_TROUBLESHOOTING.md).
+Jalankan `scripts/run-admin-diagnostics.ps1` lewat PowerShell lokal untuk menguji secara aman
+lookup tabel `admins`, hubungan akun Auth, email konfirmasi, dan autentikasi password
+dengan ANON KEY pada proyek Supabase yang sama. Jangan menyimpan/commit key atau password.
