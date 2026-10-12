@@ -3,6 +3,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { allocateBundlePrice } from './bundlePricing'
 import { findDestinations, getShippingQuotes, verifyDestination } from './shippingFallback'
 import { get17, register17 } from './tracking17'
+import { computeDiscounts, type DiscountSettings } from './promotions'
 
 type Bindings = {
   APP_NAME: string
@@ -29,7 +30,7 @@ function anon(env: Bindings): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
 }
 const REQUIRED_BINDINGS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'CART_SECRET'] as const
-const WORKER_REVISION = 'km11-shipping-fallback-track17-v1'
+const WORKER_REVISION = 'merchic-promotions-audit-v2'
 
 // Report names only; environment values and secrets must never be returned to visitors.
 function missingBindings(env: Bindings | undefined): string[] {
@@ -159,6 +160,63 @@ app.post('/api/shipping/quotes', async c => {
   return c.json(await getShippingQuotes(c.env, destination, weight, settings))
 })
 
+// Pricing is always recalculated from active Supabase prices, never from cart unitPrice.
+async function discountSettings(env: Bindings): Promise<DiscountSettings> {
+  const settings = await getSettings(env)
+  return { enabled: settings.launch_enabled !== 'false', standard: Number(settings.launch_standard_percent ?? '15'), bundle: Number(settings.launch_bundle_percent ?? '20'), endAt: settings.launch_end_at || null }
+}
+async function computeOffer(env: Bindings, originalSubtotal: number, launchBase: number, code: unknown) {
+  const sb = service(env)
+  const promoCode = cleanText(code, 40).toUpperCase()
+  let promo: any = null
+  if (promoCode) {
+    if (!/^[A-Z0-9_-]{3,40}$/.test(promoCode)) throw new Error('Format kode promo tidak valid.')
+    const result = await sb.from('promo_codes').select('*').eq('code', promoCode).maybeSingle()
+    if (result.error) throw result.error
+    if (!result.data) throw new Error('Kode promo tidak ditemukan.')
+    promo = result.data
+  }
+  return computeDiscounts(originalSubtotal, launchBase, promo, await discountSettings(env))
+}
+app.get('/api/promotions/launch', async c => c.json(await discountSettings(c.env)))
+app.get('/api/storefront/contact', async c => {
+  const settings = await getSettings(c.env)
+  const handle = cleanText(settings.social_instagram, 80).replace(/^@/,'')
+  const whatsapp = cleanText(settings.social_whatsapp, 40).replace(/\D/g,'')
+  return c.json({ instagram: /^[a-zA-Z0-9._]{2,30}$/.test(handle) ? `https://www.instagram.com/${handle}/` : null, whatsapp: /^\d{10,15}$/.test(whatsapp) ? `https://wa.me/${whatsapp}` : null })
+})
+app.post('/api/pricing/quote', async c => {
+  const b: any = await c.req.json().catch(() => null)
+  if (!b || !Array.isArray(b.items) || !b.items.length || b.items.length > 100) return c.json({ error: 'Keranjang tidak valid.' }, 400)
+  const items = b.items
+  const productIds = [...new Set(items.filter((i: any) => !i.bundleId).map((i: any) => String(i.productId)))]
+  const bundleIds = [...new Set(items.filter((i: any) => i.bundleId).map((i: any) => String(i.bundleId)))]
+  if ([...productIds, ...bundleIds].some(id => !isUuid(id))) return c.json({ error: 'ID katalog tidak valid.' }, 400)
+  const sb = service(c.env)
+  const { data: products, error: e1 } = productIds.length ? await sb.from('products').select('id,base_price').in('id', productIds).eq('active', true) : { data: [] as any[], error: null }
+  const { data: bundles, error: e2 } = bundleIds.length ? await sb.from('product_bundles').select('id,price').in('id', bundleIds).eq('active', true) : { data: [] as any[], error: null }
+  if (e1 || e2) throw e1 || e2
+  if (products?.length !== productIds.length || bundles?.length !== bundleIds.length) return c.json({ error: 'Produk atau paket tidak tersedia. Segarkan katalog.' }, 409)
+  const productMap = new Map((products || []).map((p: any) => [p.id, Number(p.base_price)]))
+  const bundleMap = new Map((bundles || []).map((p: any) => [p.id, Number(p.price)]))
+  let base = 0, launchBase = 0
+  const settings = await discountSettings(c.env)
+  for (const item of items) {
+    const quantity = Number(item.qty)
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > 999 || (item.bundleId && quantity !== 1)) throw new Error('Jumlah pesanan tidak valid.')
+    if (item.bundleId) {
+      const price = bundleMap.get(String(item.bundleId))!
+      base += price
+      launchBase += Math.round(price * settings.bundle / 100)
+    } else {
+      const price = productMap.get(String(item.productId))!
+      base += price * quantity
+      launchBase += Math.round(price * quantity * settings.standard / 100)
+    }
+  }
+  return c.json(await computeOffer(c.env, base, launchBase, b.promoCode))
+})
+
 app.post('/api/orders', async c => {
   const b: any = await c.req.json().catch(() => null)
   if (!b || !Array.isArray(b.items) || !b.items.length) return c.json({ error: 'Keranjang kosong.' }, 400)
@@ -184,7 +242,8 @@ app.post('/api/orders', async c => {
   if (prodErr) throw prodErr
   if ((products || []).length !== ids.length) return c.json({ error: 'Ada produk di dalam paket yang sudah tidak tersedia.' }, 409)
   const byId = new Map((products || []).map((p: any) => [p.id, p]))
-  let subtotal = 0, weight = 0
+  let subtotal = 0, weight = 0, launchBase = 0
+  const offerSettings = await discountSettings(c.env)
 
   function prepareOne(p: any, i: any, unitPrice: number, group?: { id: string; name: string; index: number; total: number }) {
     if (!p) throw new Error('Produk tidak ditemukan.')
@@ -227,6 +286,7 @@ app.post('/api/orders', async c => {
     if (!item.bundleId) {
       const p: any = byId.get(String(item.productId))
       preparedItems.push(prepareOne(p, item, Number(p?.base_price || 0)))
+      launchBase += Math.round(Number(p?.base_price || 0) * Number(item.qty) * offerSettings.standard / 100)
       continue
     }
     const bundle = byBundle.get(String(item.bundleId))
@@ -237,6 +297,7 @@ app.post('/api/orders', async c => {
       throw new Error(`Konfigurasi paket ${bundle.name} tidak sesuai. Silakan pilih ulang paket.`)
     }
     // Harga selalu diambil dari database. Bagikan harga paket ke item untuk laporan penjualan admin.
+    launchBase += Math.round(Number(bundle.price) * offerSettings.bundle / 100)
     const prices = allocateBundlePrice(Number(bundle.price), childIds.length)
     for (let idx = 0; idx < childIds.length; idx++) {
       const p = byId.get(childIds[idx])
@@ -270,10 +331,11 @@ app.post('/api/orders', async c => {
   if (!isUuid(paymentMethodId)) return c.json({ error: 'Metode pembayaran tidak valid.' }, 400)
   const { data: pay } = await sb.from('payment_methods').select('id,name,active').eq('id', paymentMethodId).eq('active', true).maybeSingle()
   if (!pay) return c.json({ error: 'Metode pembayaran tidak tersedia.' }, 409)
-  const total = subtotal + shippingCost
+  const discounts = await computeOffer(c.env, subtotal, launchBase, b.promoCode)
+  const total = discounts.payableSubtotal + shippingCost
   const paymentUploadToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, '')
   const paymentUploadTokenHash = await sha256(`${c.env.CART_SECRET}|payment|${paymentUploadToken}`)
-  const { data: created, error: createErr } = await sb.rpc('create_order_atomic', { p_order: { full_name: fullName, email, phone, address: fulfillmentType === 'ship' ? address : null, fulfillment_type: fulfillmentType, pickup_location_id: pickupLocationId, pickup_slot_id: pickupSlotId, shipping_destination_id: destinationId, shipping_destination_label: destinationLabel, shipping_courier: shippingCourier, shipping_service: shippingService, shipping_cost: shippingCost, subtotal, total, payment_method_id: pay.id, payment_method_name: pay.name, payment_upload_token_hash: paymentUploadTokenHash }, p_items: itemRows })
+  const { data: created, error: createErr } = await sb.rpc('create_order_atomic', { p_order: { full_name: fullName, email, phone, address: fulfillmentType === 'ship' ? address : null, fulfillment_type: fulfillmentType, pickup_location_id: pickupLocationId, pickup_slot_id: pickupSlotId, shipping_destination_id: destinationId, shipping_destination_label: destinationLabel, shipping_courier: shippingCourier, shipping_service: shippingService, shipping_cost: shippingCost, subtotal, launch_discount: discounts.launchDiscount, volume_discount: discounts.volumeDiscount, promo_discount: discounts.promoDiscount, promo_code: discounts.promoCode, total, payment_method_id: pay.id, payment_method_name: pay.name, payment_upload_token_hash: paymentUploadTokenHash }, p_items: itemRows })
   if (createErr) throw createErr
   const row = Array.isArray(created) ? created[0] : created
   if (preparedItems.some(x => x.customization)) {
@@ -299,7 +361,7 @@ app.post('/api/orders', async c => {
       if (updateErr) throw updateErr
     }
   }
-  return c.json({ orderId: row.order_id, receiptNo: row.receipt_no, total, uploadToken: paymentUploadToken }, 201)
+  return c.json({ orderId: row.order_id, receiptNo: row.receipt_no, total, discounts, uploadToken: paymentUploadToken }, 201)
 })
 
 app.post('/api/orders/:receipt/payment-proof', async c => {
@@ -348,6 +410,22 @@ app.get('/api/track/:receipt', async c => {
   return c.json({ receiptNo: o.receipt_no, status: o.status, fulfillmentType: o.fulfillment_type, createdAt: o.created_at, trackingNumber: o.tracking_number, trackingCourier: o.tracking_courier, shippingCourier: o.shipping_courier, shippingService: o.shipping_service, tracking, pickup })
 })
 
+app.use('/api/admin/*', async (c, next) => {
+  await next()
+  const method = c.req.method.toUpperCase()
+  if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method) || c.res.status >= 400 || !c.get('adminId')) return
+  const resource = c.req.path.replace(/^\/api\/admin\//,'').slice(0, 250)
+  const segment = resource.split('/')[0] || 'dashboard'
+  const actionMap: Record<string,string> = { products: 'produk', bundles: 'paket', orders: 'pesanan', 'pickup-locations': 'lokasi pickup', 'pickup-slots': 'slot pickup', 'payment-methods': 'metode pembayaran', settings: 'pengaturan', promotions: 'promo', account: 'akun admin' }
+  const verb = method === 'POST' ? 'Memproses' : method === 'PUT' || method === 'PATCH' ? 'Mengubah' : 'Menghapus'
+  const action = `${verb} ${actionMap[segment] || segment} (${resource})`
+  const { error } = await service(c.env).from('admin_audit_logs').insert({
+    admin_id: c.get('adminId'), admin_username: c.get('adminUsername') || 'admin',
+    method, resource, action
+  })
+  if (error) console.error('[Merchic audit] gagal menyimpan aktivitas admin:', error.code, error.message)
+})
+
 app.post('/api/admin/login', async c => {
   c.header('Cache-Control', 'no-store')
   const b = await c.req.json().catch(() => ({}))
@@ -358,7 +436,7 @@ app.post('/api/admin/login', async c => {
   // Database or service-role configuration errors must NOT be reported as wrong passwords.
   const { data: adm, error: lookupError } = await service(c.env)
     .from('admins')
-    .select('username,auth_email,auth_user_id,active')
+    .select('id,username,auth_email,auth_user_id,active')
     .eq('username_lower', username)
     .eq('active', true)
     .maybeSingle()
@@ -390,6 +468,8 @@ app.post('/api/admin/login', async c => {
     console.error('KM11 admin login: session missing or Auth ID differs from admin mapping')
     return c.json({ error: 'Akun admin belum terhubung dengan benar ke Supabase Auth. Hubungi pengelola admin.' }, 403)
   }
+  const { error: loginLogError } = await service(c.env).from('admin_audit_logs').insert({ admin_id: adm.id, admin_username: adm.username, method: 'POST', resource: 'login', action: 'POST login' })
+  if (loginLogError) console.error('[Merchic audit] gagal mencatat login', loginLogError.code)
   return c.json({
     access_token: data.session.access_token,
     refresh_token: data.session.refresh_token,
@@ -491,6 +571,26 @@ app.get('/api/admin/bundles', async c => {
   if (error) throw error
   return c.json(data || [])
 })
+app.post('/api/admin/bundles/:id/cover', async c => {
+  const id = c.req.param('id')
+  if (!isUuid(id)) return c.json({ error: 'ID paket tidak valid.' }, 400)
+  const sb = service(c.env)
+  const { data: bundle, error: lookupErr } = await sb.from('product_bundles').select('id,cover_image_path').eq('id', id).maybeSingle()
+  if (lookupErr) throw lookupErr
+  if (!bundle) return c.json({ error: 'Paket tidak ditemukan.' }, 404)
+  const body = await c.req.parseBody()
+  const file = body.file
+  if (!(file instanceof File)) return c.json({ error: 'Pilih foto sampul paket.' }, 400)
+  allowedUpload(file, 'image')
+  const path = randomPath(`bundles/${id}`, file)
+  const { error: upErr } = await sb.storage.from('product-images').upload(path, file, { contentType: file.type, upsert: false })
+  if (upErr) throw upErr
+  const { data: url } = sb.storage.from('product-images').getPublicUrl(path)
+  const { data: updated, error: editErr } = await sb.from('product_bundles').update({ cover_image_path: path, cover_image_url: url.publicUrl, updated_at: new Date().toISOString() }).eq('id', id).select().single()
+  if (editErr) { await sb.storage.from('product-images').remove([path]); throw editErr }
+  if (bundle.cover_image_path?.startsWith(`bundles/${id}/`)) await sb.storage.from('product-images').remove([bundle.cover_image_path])
+  return c.json(updated)
+})
 app.post('/api/admin/bundles', async c => {
   const row = bundlePayload(await c.req.json())
   const sb = service(c.env)
@@ -513,8 +613,11 @@ app.put('/api/admin/bundles/:id', async c => {
 app.delete('/api/admin/bundles/:id', async c => {
   const id = c.req.param('id')
   if (!isUuid(id)) return c.json({ error: 'ID paket tidak valid.' }, 400)
-  const { error } = await service(c.env).from('product_bundles').delete().eq('id', id)
+  const sb = service(c.env)
+  const { data: old } = await sb.from('product_bundles').select('cover_image_path').eq('id', id).maybeSingle()
+  const { error } = await sb.from('product_bundles').delete().eq('id', id)
   if (error) throw error
+  if (old?.cover_image_path?.startsWith(`bundles/${id}/`)) await sb.storage.from('product-images').remove([old.cover_image_path])
   return c.json({ ok: true })
 })
 
@@ -660,8 +763,67 @@ function paymentPayload(b: any) { const name = cleanText(b.name, 120), type = ['
 app.post('/api/admin/payment-methods/:id/qr', async c => { const id = c.req.param('id'), sb = service(c.env); const { data: p } = await sb.from('payment_methods').select('id,qr_image_path').eq('id', id).maybeSingle(); if (!p) return c.json({ error: 'Metode tidak ditemukan.' }, 404); const body = await c.req.parseBody(), file = body.file; if (!(file instanceof File)) return c.json({ error: 'Pilih file QR.' }, 400); allowedUpload(file, 'image'); const path = randomPath(`payments/${id}`, file); const { error: up } = await sb.storage.from('payment-assets').upload(path, file, { contentType: file.type }); if (up) throw up; const { data: url } = sb.storage.from('payment-assets').getPublicUrl(path); if (p.qr_image_path) await sb.storage.from('payment-assets').remove([p.qr_image_path]).catch(() => undefined); const { data, error } = await sb.from('payment_methods').update({ qr_image_path: path, qr_image_url: url.publicUrl, updated_at: new Date().toISOString() }).eq('id', id).select().single(); if (error) throw error; return c.json(data) })
 app.delete('/api/admin/payment-methods/:id', async c => { const id = c.req.param('id'), sb = service(c.env); const { data: p } = await sb.from('payment_methods').select('qr_image_path').eq('id', id).maybeSingle(); const { error } = await sb.from('payment_methods').delete().eq('id', id); if (error) throw error; if (p?.qr_image_path) await sb.storage.from('payment-assets').remove([p.qr_image_path]).catch(() => undefined); return c.json({ ok: true }) })
 
+// Admin activity logs: record the authenticated actor and successful mutation endpoint.
+app.get('/api/admin/audit-logs', async c => {
+  const limit = Math.min(300, Math.max(1, Number(c.req.query('limit')) || 100))
+  const { data, error } = await service(c.env).from('admin_audit_logs').select('id,admin_id,admin_username,action,method,resource,created_at').order('created_at', { ascending: false }).limit(limit)
+  if (error) throw error
+  c.header('Cache-Control','no-store')
+  return c.json(data || [])
+})
+app.get('/api/admin/promotions', async c => {
+  const { data, error } = await service(c.env).from('promo_codes').select('*').order('created_at', { ascending: false })
+  if (error) throw error
+  return c.json({ settings: await discountSettings(c.env), codes: data || [] })
+})
+app.put('/api/admin/promotions/launch', async c => {
+  const b = await c.req.json().catch(() => ({}))
+  const standard = Number(b.standard), bundle = Number(b.bundle)
+  if (![standard, bundle].every(n => Number.isInteger(n) && n >= 15 && n <= 20)) return c.json({ error: 'Diskon launching harus 15–20%.' }, 400)
+  const endAt = cleanText(b.endAt, 50)
+  if (endAt && !Number.isFinite(Date.parse(endAt))) return c.json({ error: 'Tanggal berakhir tidak valid.' }, 400)
+  const rows = Object.entries({ launch_enabled: b.enabled === false ? 'false' : 'true', launch_standard_percent: String(standard), launch_bundle_percent: String(bundle), launch_end_at: endAt }).map(([key,value]) => ({ key, value, updated_at: new Date().toISOString() }))
+  const { error } = await service(c.env).from('app_settings').upsert(rows, { onConflict: 'key' })
+  if (error) throw error
+  return c.json(await discountSettings(c.env))
+})
+function promoPayload(b: any) {
+  const code = cleanText(b.code, 40).toUpperCase()
+  const discountType = b.discount_type === 'fixed' ? 'fixed' : 'percent'
+  const amount = Number(b.amount)
+  const minOrderAmount = Number(b.min_order_amount ?? 0)
+  const start = b.starts_at ? new Date(b.starts_at) : null
+  const end = b.ends_at ? new Date(b.ends_at) : null
+  if (!/^[A-Z0-9_-]{3,40}$/.test(code)) throw new Error('Kode promo harus 3-40 karakter, huruf/angka/garis.')
+  if (!Number.isFinite(amount) || amount <= 0 || (discountType === 'percent' && amount > 100)) throw new Error('Nilai diskon tidak valid.')
+  if (!Number.isFinite(minOrderAmount) || minOrderAmount < 0) throw new Error('Minimal transaksi tidak valid.')
+  if ((start && !Number.isFinite(start.getTime())) || (end && !Number.isFinite(end.getTime())) || (start && end && start >= end)) throw new Error('Rentang tanggal tidak valid.')
+  return { code, description: cleanText(b.description, 300) || null, discount_type: discountType, amount, min_order_amount: minOrderAmount, starts_at: start?.toISOString() || null, ends_at: end?.toISOString() || null, active: b.active !== false, updated_at: new Date().toISOString() }
+}
+app.post('/api/admin/promotions/codes', async c => {
+  const row = promoPayload(await c.req.json())
+  const { data, error } = await service(c.env).from('promo_codes').insert(row).select().single()
+  if (error) throw error
+  return c.json(data, 201)
+})
+app.put('/api/admin/promotions/codes/:id', async c => {
+  if (!isUuid(c.req.param('id'))) return c.json({ error: 'ID kode tidak valid.' }, 400)
+  const row = promoPayload(await c.req.json())
+  const { data, error } = await service(c.env).from('promo_codes').update(row).eq('id', c.req.param('id')).select().single()
+  if (error) throw error
+  return c.json(data)
+})
+app.delete('/api/admin/promotions/codes/:id', async c => {
+  if (!isUuid(c.req.param('id'))) return c.json({ error: 'ID kode tidak valid.' }, 400)
+  const { error } = await service(c.env).from('promo_codes').delete().eq('id', c.req.param('id'))
+  if (error) throw error
+  return c.json({ ok: true })
+})
+
 app.get('/api/admin/settings', async c => { return c.json(await getSettings(c.env)) })
-app.put('/api/admin/settings', async c => { const b = await c.req.json(); const allowed = ['shipping_origin_id', 'shipping_origin_label', 'shipping_couriers', 'shipping_origin_postal_code']; const rows = allowed.map(key => ({ key, value: cleanText(b[key], 500), updated_at: new Date().toISOString() })); const { error } = await service(c.env).from('app_settings').upsert(rows, { onConflict: 'key' }); if (error) throw error; return c.json(await getSettings(c.env)) })
+app.put('/api/admin/settings', async c => { const b = await c.req.json(); const allowed = ['shipping_origin_id', 'shipping_origin_label', 'shipping_couriers', 'shipping_origin_postal_code', 'social_instagram', 'social_whatsapp']; if (cleanText(b.social_instagram,80) && !/^@?[A-Za-z0-9._]{2,30}$/.test(cleanText(b.social_instagram,80))) return c.json({ error: 'Instagram harus berupa username, tanpa URL.' },400);
+  if (cleanText(b.social_whatsapp,40) && !/^\d{10,15}$/.test(cleanText(b.social_whatsapp,40))) return c.json({ error: 'Nomor WhatsApp harus dalam format internasional, contoh 6281234567890.' },400);
+  const rows = allowed.map(key => ({ key, value: cleanText(b[key], 500), updated_at: new Date().toISOString() })); const { error } = await service(c.env).from('app_settings').upsert(rows, { onConflict: 'key' }); if (error) throw error; return c.json(await getSettings(c.env)) })
 
 app.notFound(c => c.json({ error: 'API endpoint tidak ditemukan.' }, 404))
 app.onError((err, c) => {
@@ -671,7 +833,7 @@ app.onError((err, c) => {
     typeof detail.error === 'string' ? detail.error :
     err instanceof Error ? err.message : 'Terjadi kesalahan pada server.'
   const code = typeof detail.code === 'string' ? detail.code : undefined
-  const status = /wajib|tidak valid|harus|belum lengkap/i.test(msg) ? 400 : 500
+  const status = /wajib|tidak valid|harus|belum lengkap|kode promo|kadaluarsa|kedaluwarsa|minimal transaksi|jumlah pesanan/i.test(msg) ? 400 : 500
   return c.json({ error: msg, ...(code ? { code } : {}) }, status as 400 | 500)
 })
 

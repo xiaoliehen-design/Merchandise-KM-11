@@ -1,5 +1,5 @@
 import { readableApiError } from './apiError'
-import type { CartItem, Order, PaymentMethod, PickupLocation, Product, ProductBundle, ShippingQuote } from './types'
+import type { CartItem, Order, PaymentMethod, PickupLocation, Product, ProductBundle, ShippingQuote, DiscountBreakdown, PromoCode, LaunchSettings, AuditLog } from './types'
 
 const API = '/api'
 
@@ -81,7 +81,9 @@ export const catalogApi = {
   products: () => apiGet<Product[]>('/products'),
   bundles: () => apiGet<ProductBundle[]>('/bundles'),
   pickups: () => apiGet<PickupLocation[]>('/pickup-locations'),
-  payments: () => apiGet<PaymentMethod[]>('/payment-methods')
+  payments: () => apiGet<PaymentMethod[]>('/payment-methods'),
+  launch: () => apiGet<LaunchSettings>('/promotions/launch'),
+  contact: () => apiGet<{ instagram: string | null; whatsapp: string | null }>('/storefront/contact')
 }
 
 export const cartApi = {
@@ -94,8 +96,10 @@ export const shippingApi = {
   quotes: (payload: { destinationId: string; destinationToken: string; weight: number }) => apiJson<ShippingQuote[]>('/shipping/quotes', 'POST', payload)
 }
 
+export const pricingApi = { preview: (items: CartItem[], promoCode: string) => apiJson<DiscountBreakdown>('/pricing/quote', 'POST', { items: items.map(i => ({ productId: i.productId, bundleId: i.bundleId, qty: i.qty })), promoCode }) }
+
 export const orderApi = {
-  create: (payload: unknown) => apiJson<{ orderId: string; receiptNo: string; total: number; uploadToken: string }>('/orders', 'POST', payload),
+  create: (payload: unknown) => apiJson<{ orderId: string; receiptNo: string; total: number; discounts: DiscountBreakdown; uploadToken: string }>('/orders', 'POST', payload),
   uploadProof: async (receiptNo: string, file: File, uploadToken: string) => {
     const f = new FormData()
     f.append('file', file)
@@ -118,6 +122,12 @@ export const adminApi = {
   paymentProofUrl: (id: string) => apiGet<{ url: string }>(`/admin/orders/${id}/payment-proof-url`),
   products: () => apiGet<Product[]>('/admin/products'),
   bundles: () => apiGet<ProductBundle[]>('/admin/bundles'),
+  uploadBundleCover: (id: string, file: File) => { const f = new FormData(); f.append('file', file); return apiForm<ProductBundle>(`/admin/bundles/${id}/cover`, f) },
+  promotions: () => apiGet<{ settings: LaunchSettings; codes: PromoCode[] }>('/admin/promotions'),
+  saveLaunch: (payload: LaunchSettings) => apiJson<LaunchSettings>('/admin/promotions/launch','PUT', payload),
+  savePromoCode: (payload: Partial<PromoCode>) => apiJson<PromoCode>(payload.id ? `/admin/promotions/codes/${payload.id}` : '/admin/promotions/codes',payload.id ? 'PUT' : 'POST',payload),
+  deletePromoCode: (id: string) => apiJson<{ok: true}>(`/admin/promotions/codes/${id}`, 'DELETE'),
+  auditLogs: () => apiGet<AuditLog[]>('/admin/audit-logs'),
   saveBundle: (payload: Partial<ProductBundle> & { id?: string }) => apiJson<ProductBundle>(payload.id ? `/admin/bundles/${payload.id}` : '/admin/bundles', payload.id ? 'PUT' : 'POST', payload),
   deleteBundle: (id: string) => apiJson<{ ok: true }>(`/admin/bundles/${id}`, 'DELETE'),
   productUploadCheck: () => apiGet<{ ok: boolean; checks: Record<string, boolean>; problems: string[] }>('/admin/products/upload-check'),

@@ -10,7 +10,7 @@
     "run_worker_first": ["/api/*"]
   },
   "vars": {
-    "APP_NAME": "KM 11 Merchandise",
+    "APP_NAME": "Merchic — Merchandise KM11",
     "RAJAONGKIR_BASE_URL": "https://rajaongkir.komerce.id/api/v1",
     "RAJAONGKIR_MOCK": "false"
   }

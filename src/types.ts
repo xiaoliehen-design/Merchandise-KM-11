@@ -28,6 +28,8 @@ export type ProductBundle = {
   description: string | null
   price: number
   product_ids: string[]
+  cover_image_url: string | null
+  cover_image_path?: string | null
   active: boolean
   created_at: string
   updated_at: string
@@ -128,6 +130,10 @@ export type Order = {
   shipping_service: string | null
   shipping_cost: number
   subtotal: number
+  launch_discount?: number
+  volume_discount?: number
+  promo_discount?: number
+  promo_code?: string | null
   total: number
   payment_method_id: string
   payment_proof_path: string | null
@@ -138,3 +144,12 @@ export type Order = {
   updated_at: string
   order_items?: OrderItem[]
 }
+
+export type DiscountBreakdown = {
+  originalSubtotal: number; launchActive: boolean; launchDiscount: number;
+  volumeEligible: boolean; volumeDiscount: number; promoCode: string | null;
+  promoDiscount: number; payableSubtotal: number
+}
+export type PromoCode = { id: string; code: string; description: string | null; discount_type: 'percent' | 'fixed'; amount: number; min_order_amount: number; starts_at: string | null; ends_at: string | null; active: boolean; created_at: string }
+export type LaunchSettings = { enabled: boolean; standard: number; bundle: number; endAt: string | null }
+export type AuditLog = { id: string; admin_id: string | null; admin_username: string; action: string; method: string; resource: string; created_at: string }

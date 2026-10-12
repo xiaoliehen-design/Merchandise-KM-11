@@ -12,7 +12,8 @@
     "test": "node scripts/self-test.mjs",
     "create-admin": "node scripts/create-admin.mjs",
     "test:colors": "node scripts/test-color-images.mjs",
-    "test:bundles": "node scripts/test-bundles.mjs"
+    "test:bundles": "node scripts/test-bundles.mjs",
+    "test:promos": "node scripts/test-merchic-promos.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",

@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, CreditCard, Minus, Plus, ShoppingCart, Sparkles, X } from 'lucide-react'
+import { Check, CreditCard, Minus, Plus, ShoppingCart, Sparkles, X, Search, Gift, Shirt, NotebookTabs, Package, ArrowRight }  from 'lucide-react'
 import { catalogApi } from './api'
 import { resolveProductImage } from './colorImages'
 import { useCart } from './CartContext'
 import { EMONEY_BACK_URL, EMONEY_TEMPLATES, defaultEmoneyCustomization, drawEmoneyBaseTemplate, renderEmoneyDataUrl, renderEmoneyPreview } from './emoney'
-import type { Product, ProductBundle, CartItem, BundleCartComponent } from './types'
+import type { Product, ProductBundle, CartItem, BundleCartComponent, LaunchSettings } from './types'
 import { rupiah } from './utils'
 
-function ProductCard({ p, onOpenCustomizer }: { p: Product; onOpenCustomizer: (product: Product) => void }) {
+function ProductCard({ p, onOpenCustomizer, launch }: { p: Product; onOpenCustomizer: (product: Product) => void; launch?: LaunchSettings }) {
   const { add } = useCart()
   const [qty, setQty] = useState(1)
   const [color, setColor] = useState(p.colors?.[0] || '')
@@ -41,7 +41,7 @@ function ProductCard({ p, onOpenCustomizer }: { p: Product; onOpenCustomizer: (p
         <p>{productDescription}</p>
         {Object.keys(productSpecs).length > 0 && <dl className="product-specs">{Object.entries(productSpecs).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>}
       </div>
-      <strong className="price">{rupiah(p.base_price)}</strong>
+      <div className="price-area">{launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date()) && <><span className="price-old">{rupiah(p.base_price)}</span><span className="discount-pill">-{launch.standard}%</span></>}<strong className="price">{rupiah(launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date()) ? Math.round(p.base_price * (1-launch.standard/100)) : p.base_price)}</strong></div>
       {!isEmoney && !!p.colors?.length && <label>Warna<select value={color} onChange={e => { setColor(e.target.value); setAdded(false) }}>{p.colors.map(v => <option key={v}>{v}</option>)}</select></label>}
       {!isEmoney && !!p.sizes?.length && <label>Ukuran<select value={size} onChange={e => setSize(e.target.value)}>{p.sizes.map(v => <option key={v}>{v}</option>)}</select></label>}
       <div className="qty-row"><span>Jumlah</span><div className="qty-control"><button onClick={() => setQty(Math.max(1, qty - 1))}><Minus size={16}/></button><b>{qty}</b><button onClick={() => setQty(qty + 1)}><Plus size={16}/></button></div></div>
@@ -180,18 +180,18 @@ function EmoneyCustomizerModal({ product, onClose, onConfigured }: { product: Pr
 }
 
 
-function BundleCard({ bundle, products, onOpen }: { bundle: ProductBundle; products: Product[]; onOpen: (bundle: ProductBundle) => void }) {
+function BundleCard({ bundle, products, onOpen, launch }: { bundle: ProductBundle; products: Product[]; onOpen: (bundle: ProductBundle) => void; launch?: LaunchSettings }) {
   const children = bundle.product_ids.map(id => products.find(p => p.id === id)).filter((p): p is Product => !!p)
   return <article className="product-card bundle-catalog-card">
     <div className="bundle-catalog-visual">
       <span className="featured"><Sparkles size={14}/> Paket KM11</span>
-      <div className="bundle-photo-collage">{children.slice(0, 4).map(p => <img key={p.id} src={p.product_type === 'emoney_card' ? '/emoney/front-templates.png' : resolveProductImage(p,p.colors?.[0]) || '/brand/km11-logo-blue.png'} alt={p.name}/>)}</div>
+      {bundle.cover_image_url ? <img className="bundle-cover-image" src={bundle.cover_image_url} alt={`Foto sampul ${bundle.name}`}/> : <div className="bundle-photo-collage">{children.slice(0, 4).map(p => <img key={p.id} src={p.product_type === 'emoney_card' ? '/emoney/front-templates.png' : resolveProductImage(p,p.colors?.[0]) || '/brand/km11-logo-blue.png'} alt={p.name}/>)}</div>}
     </div>
     <div className="product-body">
       <h3>{bundle.name}</h3>
       {bundle.description && <p>{bundle.description}</p>}
       <div className="bundle-includes">{children.map(p => <span key={p.id}><Check size={14}/>{p.name}</span>)}</div>
-      <strong className="price">{rupiah(bundle.price)}</strong>
+      <div className="price-area">{launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date()) && <><span className="price-old">{rupiah(bundle.price)}</span><span className="discount-pill">-{launch.bundle}%</span></>}<strong className="price">{rupiah(launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date()) ? Math.round(bundle.price * (1-launch.bundle/100)) : bundle.price)}</strong></div>
       <button className="primary" onClick={() => onOpen(bundle)} disabled={children.length !== bundle.product_ids.length}><ShoppingCart size={18}/> Pilih varian & tambah ke keranjang</button>
     </div>
   </article>
@@ -225,7 +225,7 @@ function BundleCustomizerModal({ bundle, products, onClose, onDesign }: {
       if (product.sizes?.length && (!selected?.size || !product.sizes.includes(selected.size))) return setError(`Pilih ukuran untuk ${product.name}.`)
       parts.push({ productId: product.id, name: product.name, imageUrl: product.product_type === 'emoney_card' ? selected?.imageUrl || null : resolveProductImage(product,selected?.color) || null, color: selected?.color, size: selected?.size, customization: selected?.customization || null })
     }
-    add({ bundleId: bundle.id, productId: bundle.id, name: bundle.name, qty: 1, unitPrice: Number(bundle.price), imageUrl: parts[0]?.imageUrl || null, weightGrams: children.reduce((n,p)=>n+Number(p.weight_grams||0),0), bundleItems: parts })
+    add({ bundleId: bundle.id, productId: bundle.id, name: bundle.name, qty: 1, unitPrice: Number(bundle.price), imageUrl: bundle.cover_image_url || parts[0]?.imageUrl || null, weightGrams: children.reduce((n,p)=>n+Number(p.weight_grams||0),0), bundleItems: parts })
     onClose()
   }
   return <div className="modal-backdrop" onClick={onClose}><div className="modal-card bundle-modal" onClick={e => e.stopPropagation()}>
@@ -255,37 +255,44 @@ export default function StorePage() {
   const [selectedBundle, setSelectedBundle] = useState<ProductBundle | null>(null)
   const [bundleDesign, setBundleDesign] = useState<{ product: Product; onReady: (item: CartItem) => void } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [launch, setLaunch] = useState<LaunchSettings | undefined>()
+  const [search, setSearch] = useState('')
+  const [category, setCategory] = useState('Semua')
+  const [sort, setSort] = useState('featured')
   const [error, setError] = useState('')
   const [emoneyProduct, setEmoneyProduct] = useState<Product | null>(null)
-  useEffect(() => { Promise.all([catalogApi.products(),catalogApi.bundles()]).then(([p,b]) => {setProducts(p);setBundles(b)}).catch(e => setError(e.message)).finally(() => setLoading(false)) }, [])
+  useEffect(() => { Promise.all([catalogApi.products(),catalogApi.bundles(),catalogApi.launch()]).then(([p,b,l]) => {setProducts(p);setBundles(b);setLaunch(l)}).catch(e => setError(e.message)).finally(() => setLoading(false)) }, [])
+  const matcher = (p: Product) => { const name = `${p.name} ${p.description||''}`.toLowerCase(); return category === 'Semua' || (category === 'Pakaian' && /kaos|jersey|vest|baju|kemeja|polo/.test(name)) || (category === 'Aksesori' && /keychain|sandal|payung|lanyard|gantungan|tas|tote|bag|mug/.test(name)) || (category === 'Alat tulis' && /note|book|buku|pulpen|alat tulis/.test(name)) || (category === 'Custom' && p.product_type === 'emoney_card') }
+  const filteredProducts = products.filter(p => matcher(p) && `${p.name} ${p.description||''}`.toLowerCase().includes(search.toLowerCase().trim())).sort((a,b) => sort === 'cheapest' ? a.base_price - b.base_price : sort === 'expensive' ? b.base_price - a.base_price : Number(b.featured)-Number(a.featured))
+  const filteredBundles = bundles.filter(p => ['Semua','Paket'].includes(category) && `${p.name} ${p.description||''}`.toLowerCase().includes(search.toLowerCase().trim())).sort((a,b) => sort === 'cheapest' ? a.price-b.price : sort === 'expensive' ? b.price-a.price : 0)
+  const categories = [{name:'Semua',icon:'✦'}, {name:'Paket',icon:'🎁'}, {name:'Pakaian',icon:'👕'}, {name:'Aksesori',icon:'🛍️'}, {name:'Alat tulis',icon:'📒'}, {name:'Custom',icon:'🎨'}]
+
 
   return <>
-    <section className="hero">
+    <section className="merchic-hero">
       <div className="hero-copy">
-        <span className="eyebrow">Kemenkeu Mengajar 11</span>
-        <h1>Merchandise KM11, <em>ceria, rapi, mudah dipesan.</em></h1>
-        <a className="primary hero-btn" href="#katalog">Lihat Katalog</a>
+        <span className="eyebrow">✦ Bawa semangat KM11 ke mana saja!</span>
+        <h1>Merchandise seru,<br/><em>cerita baru!</em></h1>
+        <p>Jelajahi koleksi penuh warna untuk setiap momen Kemenkeu Mengajar 11. Pilih favoritmu di Merchic!</p>
+        <form className="hero-search" onSubmit={e => {e.preventDefault();document.getElementById('katalog')?.scrollIntoView({behavior:'smooth'})}}>
+          <Search size={20}/><input aria-label="Cari merchandise" value={search} onChange={e => setSearch(e.target.value)} placeholder="Mau cari merchandise apa?"/><button type="submit">Cari produk <ArrowRight size={17}/></button>
+        </form>
+        <div className="hero-offers">
+          {launch?.enabled && (!launch.endAt || new Date(launch.endAt)>new Date()) && <div><strong>15–20%</strong><span>Diskon launching</span></div>}
+          <div><strong>+10%</strong><span>Belanja di atas Rp500.000</span></div>
+          <div><strong>🎟️</strong><span>Kode promo bisa ditumpuk</span></div>
+        </div>
       </div>
-      <figure className="hero-photo">
-        <picture>
-          <source srcSet="/hero/km11-merchandise-showcase.webp" type="image/webp" />
-          <img
-            src="/hero/km11-merchandise-showcase.png"
-            alt="Merchandise Kemenkeu Mengajar 11: notebook, mug, sandal selop, dan gantungan kunci dengan desain KM11"
-            width={1448}
-            height={1086}
-            loading="eager"
-            decoding="async"
-            fetchPriority="high"
-          />
-        </picture>
-      </figure>
+      <figure className="hero-photo merchic-lifestyle"><img src="/hero/merchic-kemenkeu-shopping.webp" alt="Ilustrasi suasana pegawai Kemenkeu melihat dan memilih merchandise KM11 di stan offline" loading="eager"/><figcaption>✦ Belanja bareng, bawa cerita!</figcaption></figure>
     </section>
-    <section id="katalog" className="section catalog-section">
-      <div className="section-heading"><div><span className="eyebrow">Katalog</span><h2>Pilih merchandise kamu</h2></div></div>
+    <div className="merchic-category-strip">{categories.map(c => <button key={c.name} className={category===c.name?'active':''} onClick={()=>{setCategory(c.name);document.getElementById('katalog')?.scrollIntoView({behavior:'smooth'})}}><span>{c.icon}</span>{c.name==='Semua'?'Semua merch':c.name}</button>)}</div>
+    <section id="katalog" className="section catalog-section merchic-catalog">
+      <div className="section-heading"><div><span className="eyebrow">Jelajahi & pilih</span><h2>Temukan favoritmu! ✨</h2><p>Ada {filteredProducts.length + filteredBundles.length} merchandise yang bisa kamu jelajahi.</p></div><select className="catalog-sort" aria-label="Urutkan produk" value={sort} onChange={e=>setSort(e.target.value)}><option value="featured">Rekomendasi</option><option value="cheapest">Harga terendah</option><option value="expensive">Harga tertinggi</option></select></div>
+      <div className="catalog-filters">{categories.map(c=><button key={c.name} className={category===c.name?'active':''} onClick={()=>setCategory(c.name)}>{c.name}</button>)}</div>
       {loading ? <div className="empty">Memuat produk...</div> : error ? <div className="alert error">{error}</div> : <>
-        {!!bundles.length && <section className="bundle-catalog-section"><div className="bundle-catalog-heading"><span className="eyebrow">Paket KM11</span><h3>Paket merchandise</h3></div><div className="product-grid">{bundles.map(bundle => <BundleCard key={bundle.id} bundle={bundle} products={products} onOpen={setSelectedBundle}/>)}</div></section>}
-        {!!products.length ? <div className="product-grid">{products.map(p => <ProductCard p={p} key={p.id} onOpenCustomizer={setEmoneyProduct}/>)}</div> : !bundles.length && <div className="empty">Belum ada produk aktif. Admin dapat menambahkan produk dari dashboard.</div>}
+        {!!filteredBundles.length && <div className="product-grid">{filteredBundles.map(bundle => <BundleCard key={bundle.id} bundle={bundle} products={products} onOpen={setSelectedBundle} launch={launch}/>)}</div>}
+        {!!filteredProducts.length && <div className="product-grid">{filteredProducts.map(p=><ProductCard p={p} key={p.id} onOpenCustomizer={setEmoneyProduct} launch={launch}/>)}</div>}
+        {!filteredProducts.length && !filteredBundles.length && <div className="empty">Belum ada merchandise yang sesuai dengan pencarian. Coba kategori lain.</div>}
       </>}
     </section>
     {emoneyProduct && <EmoneyCustomizerModal product={emoneyProduct} onClose={() => setEmoneyProduct(null)}/>}

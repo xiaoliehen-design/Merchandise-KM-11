@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { BarChart3, CheckCircle2, CreditCard, Download, Edit3, KeyRound, LogOut, MapPin, Package, Plus, RefreshCw, Search, Settings, ShieldCheck, Trash2, Truck, UserCog, X } from 'lucide-react'
+import { BarChart3, CheckCircle2, CreditCard, Download, Edit3, KeyRound, LogOut, MapPin, Package, Plus, RefreshCw, Search, Settings, ShieldCheck, Trash2, Truck, UserCog, X, Tag, ClipboardList } from 'lucide-react'
 import { adminApi } from './api'
 import { readableApiError } from './apiError'
 import { resolveProductImage } from './colorImages'
-import type { Order, PaymentMethod, PickupLocation, Product, ProductBundle } from './types'
+import type { Order, PaymentMethod, PickupLocation, Product, ProductBundle, LaunchSettings, PromoCode, AuditLog } from './types'
 import { dt, rupiah, slugify, statusLabel } from './utils'
 
-type Tab = 'orders' | 'products' | 'pickups' | 'payments' | 'settings' | 'account'
+type Tab = 'orders' | 'products' | 'pickups' | 'payments' | 'settings' | 'promotions' | 'audit' | 'account'
 
 export default function AdminPage() {
   const [authed, setAuthed] = useState<boolean | null>(null)
@@ -62,12 +62,14 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
   const [adminName, setAdminName] = useState('Admin')
   useEffect(() => { adminApi.me().then(v => setAdminName(v.display_name || v.username || 'Admin')).catch(() => undefined) }, [])
   return <section className="admin-shell">
-    <aside className="admin-sidebar"><div className="admin-title"><span className="admin-brand-logo"><img src="/brand/km11-logo-white.png" alt="Kemenkeu Mengajar 11"/></span><div><b>{adminName}</b><small>Merchandise</small></div></div>
+    <aside className="admin-sidebar"><div className="admin-title"><span className="admin-brand-logo"><img src="/brand/merchic-logo.png" alt="Merchic"/></span><div><b>{adminName}</b><small>Merchandise</small></div></div>
       <button className={tab === 'orders' ? 'active' : ''} onClick={() => setTab('orders')}><Package/> Pesanan</button>
       <button className={tab === 'products' ? 'active' : ''} onClick={() => setTab('products')}><BarChart3/> Produk</button>
       <button className={tab === 'pickups' ? 'active' : ''} onClick={() => setTab('pickups')}><MapPin/> Pickup</button>
       <button className={tab === 'payments' ? 'active' : ''} onClick={() => setTab('payments')}><CreditCard/> Pembayaran</button>
       <button className={tab === 'settings' ? 'active' : ''} onClick={() => setTab('settings')}><Settings/> Pengaturan</button>
+      <button className={tab === 'promotions' ? 'active' : ''} onClick={() => setTab('promotions')}><Tag/> Promo & diskon</button>
+      <button className={tab === 'audit' ? 'active' : ''} onClick={() => setTab('audit')}><ClipboardList/> Aktivitas admin</button>
       <button className={tab === 'account' ? 'active' : ''} onClick={() => setTab('account')}><UserCog/> Akun Admin</button>
       <button className="logout" onClick={onLogout}><LogOut/> Logout</button>
     </aside>
@@ -77,9 +79,59 @@ function AdminDashboard({ onLogout }: { onLogout: () => void }) {
       {tab === 'pickups' && <PickupsAdmin/>}
       {tab === 'payments' && <PaymentsAdmin/>}
       {tab === 'settings' && <SettingsAdmin/>}
+      {tab === 'promotions' && <PromotionsAdmin/>}
+      {tab === 'audit' && <AuditAdmin/>}
       {tab === 'account' && <AccountAdmin onNameChanged={setAdminName}/>}
     </div>
   </section>
+}
+
+
+const emptyPromo: Partial<PromoCode> = { code: '', description: '', discount_type: 'percent', amount: 10, min_order_amount: 0, starts_at: null, ends_at: null, active: true }
+function toInputDate(value: string | null | undefined) {
+  if (!value) return ''
+  const d = new Date(value)
+  return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,16)
+}
+function PromotionsAdmin() {
+  const [settings, setSettings] = useState<LaunchSettings>({ enabled:true, standard:15, bundle:20, endAt:null })
+  const [codes, setCodes] = useState<PromoCode[]>([])
+  const [edit, setEdit] = useState<Partial<PromoCode>>({...emptyPromo})
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function load() { try { const result = await adminApi.promotions(); setSettings(result.settings); setCodes(result.codes) } catch(e) { setError((e as Error).message) } }
+  useEffect(()=>{void load()},[])
+  async function saveLaunch() { setBusy(true);setError('');setSuccess('');try{setSettings(await adminApi.saveLaunch(settings));setSuccess('Diskon launching tersimpan. Diskon 10% di atas Rp500.000 berlaku permanen.')}catch(e){setError((e as Error).message)}finally{setBusy(false)} }
+  async function saveCode() {
+    setBusy(true);setError('');setSuccess('')
+    try { await adminApi.savePromoCode({ ...edit, code: (edit.code||'').trim().toUpperCase(), starts_at: edit.starts_at ? new Date(edit.starts_at).toISOString() : null, ends_at: edit.ends_at ? new Date(edit.ends_at).toISOString() : null });setEdit({...emptyPromo}); await load();setSuccess('Kode promo berhasil disimpan.') } catch(e){setError((e as Error).message)}finally{setBusy(false)}
+  }
+  async function removeCode(code: PromoCode) { if(!confirm(`Hapus kode ${code.code}?`))return; try{await adminApi.deletePromoCode(code.id);await load()}catch(e){setError((e as Error).message)} }
+  return <>
+    <AdminHeader title="Promo & diskon"/>
+    {error && <div className="alert error" role="alert">{error}</div>}{success && <div className="alert success">{success}</div>}
+    <div className="panel merchic-admin-panel"><span className="eyebrow">Diskon otomatis</span><h2>Launching 15–20%</h2><p className="muted">Produk reguler default 15%, paket default 20%. Anda dapat mengubah keduanya antara 15–20%, mengatur batas waktu, atau menonaktifkan promo. Diskon otomatis tambahan 10% untuk subtotal sebelum diskon lebih dari Rp500.000 berlaku selamanya.</p>
+      <div className="form-grid two"><label>Diskon produk biasa (%)<input type="number" min="15" max="20" step="1" value={settings.standard} onChange={e=>setSettings({...settings,standard:Number(e.target.value)})}/></label><label>Diskon paket (%)<input type="number" min="15" max="20" step="1" value={settings.bundle} onChange={e=>setSettings({...settings,bundle:Number(e.target.value)})}/></label><label>Batas akhir launching (opsional)<input type="datetime-local" value={toInputDate(settings.endAt)} onChange={e=>setSettings({...settings,endAt:e.target.value?new Date(e.target.value).toISOString():null})}/></label><label className="promo-enabled"><input type="checkbox" checked={settings.enabled} onChange={e=>setSettings({...settings,enabled:e.target.checked})}/> Aktifkan promo launching</label></div>
+      <div className="button-row"><button className="primary" disabled={busy} onClick={saveLaunch}>Simpan diskon launching</button></div>
+    </div>
+    <div className="panel merchic-admin-panel"><span className="eyebrow">Kode promo tambahan</span><h2>{edit.id?'Edit kode promo':'Buat kode promo'}</h2><p className="muted">Kode promo tetap dapat dipakai bersamaan dengan kedua diskon otomatis selama memenuhi syarat.</p>
+      <div className="form-grid two"><label>Kode promo<input maxLength={40} value={edit.code||''} onChange={e=>setEdit({...edit,code:e.target.value.toUpperCase()})} placeholder="Contoh: MERCHIC10"/></label><label>Deskripsi<input value={edit.description||''} onChange={e=>setEdit({...edit,description:e.target.value})}/></label><label>Jenis diskon<select value={edit.discount_type||'percent'} onChange={e=>setEdit({...edit,discount_type:e.target.value as 'percent'|'fixed'})}><option value="percent">Persentase (%)</option><option value="fixed">Nominal (Rp)</option></select></label><label>Nilai diskon<input type="number" min="1" step="1" value={edit.amount??10} onChange={e=>setEdit({...edit,amount:Number(e.target.value)})}/></label><label>Minimal subtotal pembelian (Rp)<input type="number" min="0" step="1" value={edit.min_order_amount??0} onChange={e=>setEdit({...edit,min_order_amount:Number(e.target.value)})}/></label><label className="promo-enabled"><input type="checkbox" checked={edit.active!==false} onChange={e=>setEdit({...edit,active:e.target.checked})}/> Kode aktif</label><label>Berlaku mulai (opsional)<input type="datetime-local" value={toInputDate(edit.starts_at)} onChange={e=>setEdit({...edit,starts_at:e.target.value||null})}/></label><label>Berlaku sampai (opsional)<input type="datetime-local" value={toInputDate(edit.ends_at)} onChange={e=>setEdit({...edit,ends_at:e.target.value||null})}/></label></div>
+      <div className="button-row"><button className="primary" onClick={saveCode} disabled={busy}>Simpan kode promo</button><button className="secondary" onClick={()=>setEdit({...emptyPromo})}>Reset form</button></div>
+    </div>
+    <div className="panel merchic-admin-panel"><h2>Daftar kode promo</h2><div className="table-wrap"><table><thead><tr><th>Kode</th><th>Diskon</th><th>Minimal</th><th>Periode</th><th>Status</th><th>Aksi</th></tr></thead><tbody>{codes.map(code=><tr key={code.id}><td><b>{code.code}</b><small>{code.description}</small></td><td>{code.discount_type==='percent'?`${code.amount}%`:rupiah(code.amount)}</td><td>{rupiah(code.min_order_amount)}</td><td>{code.starts_at?dt(code.starts_at):'Tanpa awal'} – {code.ends_at?dt(code.ends_at):'Tanpa akhir'}</td><td>{code.active?'Aktif':'Nonaktif'}</td><td><div className="action-row"><button className="mini" onClick={()=>setEdit({...code,starts_at:toInputDate(code.starts_at),ends_at:toInputDate(code.ends_at)})}>Edit</button><button className="mini danger" onClick={()=>removeCode(code)}>Hapus</button></div></td></tr>)}</tbody></table>{!codes.length&&<p className="muted">Belum ada kode promo.</p>}</div></div>
+  </>
+}
+function AuditAdmin() {
+  const [logs,setLogs] = useState<AuditLog[]>([])
+  const [q,setQ] = useState('')
+  const [error,setError] = useState('')
+  async function load() { try{setLogs(await adminApi.auditLogs());setError('')}catch(e){setError((e as Error).message)} }
+  useEffect(()=>{void load()},[])
+  const visible=logs.filter(log=>`${log.admin_username} ${log.action}`.toLowerCase().includes(q.toLowerCase()))
+  return <><AdminHeader title="Aktivitas admin" actions={<button className="secondary" onClick={load}><RefreshCw size={17}/> Refresh</button>}/>
+  <p className="muted">Jejak tindakan admin yang berhasil: siapa, apa yang diubah, dan kapan. Menampilkan 100 aktivitas terakhir, tanpa menyimpan password atau isi data pelanggan di log.</p>
+  {error&&<div className="alert error">{error}</div>}<div className="panel merchic-admin-panel"><div className="search-box"><Search size={17}/><input placeholder="Filter admin atau aktivitas" value={q} onChange={e=>setQ(e.target.value)}/></div><div className="table-wrap"><table><thead><tr><th>Waktu</th><th>Admin</th><th>Aktivitas</th><th>Metode</th></tr></thead><tbody>{visible.map(log=><tr key={log.id}><td>{dt(log.created_at)}</td><td><b>{log.admin_username}</b></td><td><b>{log.action.split(' (')[0]}</b><small>{log.resource}</small></td><td>{log.method}</td></tr>)}</tbody></table>{!visible.length&&<p className="muted">Belum ada aktivitas yang sesuai.</p>}</div></div></>
 }
 
 function OrdersAdmin() {
@@ -126,6 +178,10 @@ function OrdersAdmin() {
       HP: o.phone,
       Fulfillment: o.fulfillment_type,
       Subtotal: o.subtotal,
+      DiskonLaunching: o.launch_discount || 0,
+      DiskonBelanjaBesar: o.volume_discount || 0,
+      KodePromo: o.promo_code || '',
+      DiskonKodePromo: o.promo_discount || 0,
       Ongkir: o.shipping_cost,
       Total: o.total,
       Kurir: o.tracking_courier || o.shipping_courier || '',
@@ -271,7 +327,14 @@ function BundlesAdmin({ products, showEditor, setShowEditor, newRequest }: {
   const [form, setForm] = useState<Partial<ProductBundle>>({ name: '', description: '', price: 0, product_ids: [], active: true })
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  useEffect(() => { if (newRequest > 0) { setForm({ name: '', description: '', price: 0, product_ids: [], active: true }); setError('') } }, [newRequest])
+  const [coverFile, setCoverFile] = useState<File | null>(null)
+  const [coverPreviewUrl, setCoverPreviewUrl] = useState<string | null>(null)
+  useEffect(()=>{
+    if (!coverFile) { setCoverPreviewUrl(null); return }
+    const url=URL.createObjectURL(coverFile);setCoverPreviewUrl(url)
+    return ()=>URL.revokeObjectURL(url)
+  },[coverFile])
+  useEffect(() => { if (newRequest > 0) { setForm({ name: '', description: '', price: 0, product_ids: [], active: true }); setCoverFile(null); setError('') } }, [newRequest])
   useEffect(() => { adminApi.bundles().then(setBundles).catch(e => setError((e as Error).message)) }, [])
   const available = products.filter(p => p.active)
   const selected = form.product_ids || []
@@ -280,11 +343,13 @@ function BundlesAdmin({ products, showEditor, setShowEditor, newRequest }: {
 
   function openNew() {
     setForm({ name: '', description: '', price: 0, product_ids: [], active: true })
+    setCoverFile(null)
     setError('')
     setShowEditor(true)
   }
   function openEdit(bundle: ProductBundle) {
     setForm({ ...bundle, product_ids: [...bundle.product_ids] })
+    setCoverFile(null)
     setError('')
     setShowEditor(true)
     window.requestAnimationFrame(() => document.getElementById('km11-bundle-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
@@ -295,11 +360,15 @@ function BundlesAdmin({ products, showEditor, setShowEditor, newRequest }: {
     if (!selected.length) return setError('Pilih minimal satu produk untuk paket.')
     if (selected.some(id => !available.some(p => p.id === id))) return setError('Paket hanya boleh berisi produk aktif.')
     if (Number(form.price) < 0 || !Number.isFinite(Number(form.price))) return setError('Harga paket tidak valid.')
+    if (coverFile && (!['image/jpeg','image/png','image/webp'].includes(coverFile.type) || coverFile.size===0 || coverFile.size>5*1024*1024)) return setError('Foto sampul harus PNG/JPG/WebP maksimal 5 MB.')
     setSaving(true); setError('')
     try {
-      await adminApi.saveBundle({ ...form, name: form.name.trim(), price: Number(form.price), product_ids: selected })
+      const saved = await adminApi.saveBundle({ ...form, name: form.name.trim(), price: Number(form.price), product_ids: selected })
+      setForm(saved) // If photo upload fails, retry edits this bundle rather than creating a duplicate.
+      if (coverFile) await adminApi.uploadBundleCover(saved.id, coverFile)
       setBundles(await adminApi.bundles())
       setShowEditor(false)
+      setCoverFile(null)
       setForm({ name: '', description: '', price: 0, product_ids: [], active: true })
     } catch (e) { setError((e as Error).message) } finally { setSaving(false) }
   }
@@ -318,6 +387,7 @@ function BundlesAdmin({ products, showEditor, setShowEditor, newRequest }: {
         <label>Harga paket (Rp)<input type="number" min="0" step="1" value={form.price ?? 0} onChange={e => setForm(prev => ({ ...prev, price: Number(e.target.value) }))}/></label>
         <label className="span-2">Deskripsi paket<textarea rows={3} value={form.description || ''} onChange={e => setForm(prev => ({ ...prev, description: e.target.value }))} placeholder="Tuliskan isi dan keunggulan paket"/></label>
       </div>
+      <div className="bundle-cover-editor"><div className="bundle-cover-preview">{coverFile ? <img src={coverPreviewUrl || ''} alt="Pratinjau sampul paket"/> : form.cover_image_url ? <img src={form.cover_image_url} alt="Sampul paket saat ini"/> : <Package size={36}/>}</div><label>Foto sampul paket untuk katalog<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>setCoverFile(e.target.files?.[0]||null)}/><small>Admin dapat mengunggah satu foto utama JPG/PNG/WebP maksimal 5 MB. Jika kosong, katalog menggunakan kolase foto produk.</small></label></div>
       <h3>Pilih produk yang dimasukkan ke paket</h3>
       <div className="bundle-choose-grid">{available.map(p => <label key={p.id} className={`bundle-product-select ${selected.includes(p.id) ? 'chosen' : ''}`}>
         <input type="checkbox" checked={selected.includes(p.id)} onChange={e => setForm(prev => ({ ...prev, product_ids: e.target.checked ? [...selected, p.id] : selected.filter(id => id !== p.id) }))}/>
@@ -330,6 +400,7 @@ function BundlesAdmin({ products, showEditor, setShowEditor, newRequest }: {
     </div>}
     {bundles.length ? <div className="bundle-admin-grid">{bundles.map(bundle => <div className="panel bundle-admin-card" key={bundle.id}>
       <div><b>{bundle.name}</b><span className={bundle.active ? 'bundle-pill' : 'bundle-pill muted'}>{bundle.active ? 'Aktif' : 'Nonaktif'}</span></div>
+      {bundle.cover_image_url && <img className="bundle-admin-cover" src={bundle.cover_image_url} alt={`Foto paket ${bundle.name}`}/>}
       <p>{bundle.description || 'Paket KM11'}</p>
       <small>{bundle.product_ids.map(id => products.find(p => p.id === id)?.name || 'Produk tidak ditemukan').join(' · ')}</small>
       <strong>{rupiah(bundle.price)}</strong>
@@ -633,12 +704,12 @@ function AccountAdmin({ onNameChanged }: { onNameChanged: (name: string) => void
 }
 
 function SettingsAdmin() {
-  const [settings, setSettings] = useState<Record<string, string>>({ shipping_origin_id: '', shipping_origin_label: '', shipping_couriers: 'jne:sicepat:jnt:ninja:tiki:anteraja:pos', shipping_origin_postal_code: '' })
+  const [settings, setSettings] = useState<Record<string, string>>({ shipping_origin_id: '', shipping_origin_label: '', shipping_couriers: 'jne:sicepat:jnt:ninja:tiki:anteraja:pos', shipping_origin_postal_code: '', social_instagram: '', social_whatsapp: '' })
   const [error, setError] = useState('')
   const [saved, setSaved] = useState(false)
   useEffect(() => { adminApi.settings().then(v => setSettings(s => ({ ...s, ...v }))).catch(e => setError((e as Error).message)) }, [])
   async function save() { try { setSettings(await adminApi.saveSettings(settings)); setSaved(true); setTimeout(() => setSaved(false), 1500) } catch (e) { setError((e as Error).message) } }
-  return <><AdminHeader title="Pengaturan"/>{error && <div className="alert error">{error}</div>}<div className="panel editor"><div className="form-grid two"><label>RajaOngkir Origin ID<input value={settings.shipping_origin_id || ''} onChange={e => setSettings({ ...settings, shipping_origin_id: e.target.value })}/><small>ID lokasi asal dari RajaOngkir.</small></label><label>Label asal<input value={settings.shipping_origin_label || ''} onChange={e => setSettings({ ...settings, shipping_origin_label: e.target.value })} placeholder="Contoh: Jakarta Utara"/></label><label>Kode pos asal AgenWebsite (5 digit)<input inputMode="numeric" maxLength={5} placeholder="Contoh: 14420" value={settings.shipping_origin_postal_code || ''} onChange={e => setSettings({ ...settings, shipping_origin_postal_code: e.target.value.replace(/\D/g, '').slice(0,5) })}/><small>Dipakai untuk ongkir fallback ketika RajaOngkir tidak tersedia.</small></label><label className="span-2">Kode kurir (pisahkan titik dua)<input value={settings.shipping_couriers || ''} onChange={e => setSettings({ ...settings, shipping_couriers: e.target.value })}/><small>Contoh: jne:sicepat:jnt:ninja:tiki:anteraja:pos</small></label></div><button className="primary" onClick={save}>{saved ? <><CheckCircle2 size={17}/> Tersimpan</> : <>Simpan pengaturan</>}</button></div></>
+  return <><AdminHeader title="Pengaturan"/>{error && <div className="alert error">{error}</div>}<div className="panel editor"><div className="form-grid two"><label>RajaOngkir Origin ID<input value={settings.shipping_origin_id || ''} onChange={e => setSettings({ ...settings, shipping_origin_id: e.target.value })}/><small>ID lokasi asal dari RajaOngkir.</small></label><label>Label asal<input value={settings.shipping_origin_label || ''} onChange={e => setSettings({ ...settings, shipping_origin_label: e.target.value })} placeholder="Contoh: Jakarta Utara"/></label><label>Kode pos asal AgenWebsite (5 digit)<input inputMode="numeric" maxLength={5} placeholder="Contoh: 14420" value={settings.shipping_origin_postal_code || ''} onChange={e => setSettings({ ...settings, shipping_origin_postal_code: e.target.value.replace(/\D/g, '').slice(0,5) })}/><small>Dipakai untuk ongkir fallback ketika RajaOngkir tidak tersedia.</small></label><label className="span-2">Kode kurir (pisahkan titik dua)<input value={settings.shipping_couriers || ''} onChange={e => setSettings({ ...settings, shipping_couriers: e.target.value })}/><small>Contoh: jne:sicepat:jnt:ninja:tiki:anteraja:pos</small></label></div><div className="form-grid two merchic-social-settings"><label>Username Instagram (opsional)<input value={settings.social_instagram || ''} onChange={e=>setSettings({...settings,social_instagram:e.target.value})} placeholder="merchic.official"/><small>Gunakan username saja. Tautan Sosial akan muncul di website.</small></label><label>WhatsApp customer service (opsional)<input value={settings.social_whatsapp || ''} onChange={e=>setSettings({...settings,social_whatsapp:e.target.value.replace(/\D/g,'')})} placeholder="6281234567890"/><small>Nomor internasional, tanpa + dan spasi. Tombol WhatsApp otomatis ditampilkan jika diisi.</small></label></div><button className="primary" onClick={save}>{saved ? <><CheckCircle2 size={17}/> Tersimpan</> : <>Simpan pengaturan</>}</button></div></>
 }
 
 function AdminHeader({ title, actions }: { title: string; actions?: React.ReactNode }) {

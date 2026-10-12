@@ -1,6 +1,8 @@
-# KM 11 Merchandise Store
+# Merchic — Merchandise Kemenkeu Mengajar 11
 
-Full-stack order application for **Kemenkeu Mengajar 11 merchandise**. The visual system follows the supplied blue/white umbrella references and keeps product imagery fully visible (`object-fit: contain`).
+Full-stack order application for **Kemenkeu Mengajar 11 merchandise**. Visual merchandising mengikuti desain Merchic biru/kuning dan referensi landing page KM11; hero menggunakan visual ilustratif pegawai Kemenkeu berbelanja offline.
+
+> **UPDATE 2026-10-12:** Sebelum deployment, jalankan migrasi `supabase/migrations/007_merchic_launch_promos_audit_bundle_covers.sql`. Instruksi instalasi dan aturan diskon tersedia di **`PANDUAN_UPDATE_MERCHIC.md`**.
 
 ## Stack
 
