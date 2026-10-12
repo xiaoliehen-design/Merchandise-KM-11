@@ -181,8 +181,9 @@ async function computeOffer(env: Bindings, originalSubtotal: number, launchBase:
 app.get('/api/promotions/launch', async c => c.json(await discountSettings(c.env)))
 app.get('/api/storefront/contact', async c => {
   const settings = await getSettings(c.env)
-  const handle = cleanText(settings.social_instagram, 80).replace(/^@/,'')
-  const whatsapp = cleanText(settings.social_whatsapp, 40).replace(/\D/g,'')
+  // Default resmi Merchic tetap aktif jika tabel settings belum diisi / migrasi 008 belum dijalankan.
+  const handle = cleanText(settings.social_instagram || 'km_dkijakarta', 80).replace(/^@/,'')
+  const whatsapp = cleanText(settings.social_whatsapp || '628113446578', 40).replace(/\D/g,'')
   return c.json({ instagram: /^[a-zA-Z0-9._]{2,30}$/.test(handle) ? `https://www.instagram.com/${handle}/` : null, whatsapp: /^\d{10,15}$/.test(whatsapp) ? `https://wa.me/${whatsapp}` : null })
 })
 app.post('/api/pricing/quote', async c => {

@@ -217,3 +217,11 @@ body{background:#f6f9ff}
 @media(max-width:640px){.brand > .brand-logo-box{display:grid!important}}
 
 .merchic-whatsapp{position:fixed;right:22px;bottom:25px;background:#15a76a;color:#fff;padding:13px 20px;border-radius:999px;z-index:48;font-weight:900;font-size:13px;box-shadow:0 7px 22px rgba(0,100,54,.25)}.merchic-whatsapp:hover{background:#0a8a57}.merchic-social-settings{margin:20px 0}
+
+/* Kontak resmi Merchic: tautan Instagram dan WhatsApp yang mudah ditemukan. */
+.merchic-contact-links{display:flex!important;flex-direction:row!important;gap:16px!important;align-items:center;flex-wrap:wrap}
+.merchic-contact-links a{display:inline-flex;gap:7px;align-items:center;color:#164b95;font-weight:750;line-height:1.5}
+.merchic-contact-links a:hover{color:#0756c9;text-decoration:underline}
+.merchic-whatsapp{display:inline-flex;gap:8px;align-items:center;justify-content:center;text-decoration:none}
+.merchic-whatsapp:focus-visible,.merchic-contact-links a:focus-visible{outline:3px solid #ffcf33;outline-offset:4px}
+@media(max-width:640px){.merchic-contact-links{gap:9px!important;flex-direction:column!important;align-items:flex-start}.merchic-whatsapp{right:15px;bottom:16px;padding:11px 14px}}

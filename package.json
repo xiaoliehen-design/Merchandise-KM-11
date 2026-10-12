@@ -13,7 +13,8 @@
     "create-admin": "node scripts/create-admin.mjs",
     "test:colors": "node scripts/test-color-images.mjs",
     "test:bundles": "node scripts/test-bundles.mjs",
-    "test:promos": "node scripts/test-merchic-promos.mjs"
+    "test:promos": "node scripts/test-merchic-promos.mjs",
+    "test:contacts": "node scripts/test-contacts.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",

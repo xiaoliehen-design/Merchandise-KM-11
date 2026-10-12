@@ -37,3 +37,7 @@
 - Foto hero merupakan **visual AI ilustratif**, bukan dokumentasi acara/pegawai sebenarnya. Identitas wajah dan detail desain barang pada visual tidak boleh diperlakukan sebagai foto resmi kegiatan.
 - Pengujian lokal file-source telah dilakukan dengan skrip proyek dan pengujian unit promo. Build production lengkap perlu dijalankan dengan dependensi npm dan sambungan Supabase/Cloudflare di lingkungan Anda; **belum diuji lewat deployment live** di sini.
 - Untuk rollback, kembalikan commit sebelumnya. Hindari menghapus tabel promosi/audit atau kolom baru jika ada transaksi yang sudah menggunakan fitur tersebut.
+
+## Pembaruan kontak (12 Oktober 2026)
+
+Tambahan setelah migrasi 007: jalankan `supabase/migrations/008_merchic_official_contacts.sql` sekali. WhatsApp adalah **+62 811-3446-578** dan Instagram **@km_dkijakarta**. Menu Instagram dan WhatsApp di header, informasi kontak di footer, serta tombol chat mengarah langsung ke kontak tersebut. Lihat `PANDUAN_KONTAK_MERCHIC.md`.

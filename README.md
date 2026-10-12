@@ -198,3 +198,10 @@ lihat panduan [`LOGIN_TROUBLESHOOTING.md`](./LOGIN_TROUBLESHOOTING.md).
 Jalankan `scripts/run-admin-diagnostics.ps1` lewat PowerShell lokal untuk menguji secara aman
 lookup tabel `admins`, hubungan akun Auth, email konfirmasi, dan autentikasi password
 dengan ANON KEY pada proyek Supabase yang sama. Jangan menyimpan/commit key atau password.
+
+### Kontak Merchic (update 12 Oktober 2026)
+
+- WhatsApp: [+62 811-3446-578](https://wa.me/628113446578)
+- Instagram: [@km_dkijakarta](https://www.instagram.com/km_dkijakarta/)
+
+Lihat `PANDUAN_KONTAK_MERCHIC.md`; setelah migrasi 007, jalankan `supabase/migrations/008_merchic_official_contacts.sql` agar kontak tersimpan di Supabase. Nilai default tersedia pada frontend/Worker jika settings belum diisi.
