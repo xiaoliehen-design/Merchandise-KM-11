@@ -31,7 +31,7 @@ function anon(env: Bindings): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
 }
 const REQUIRED_BINDINGS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'CART_SECRET'] as const
-const WORKER_REVISION = 'merchic-shipping-waterfall-3-v1'
+const WORKER_REVISION = 'merchic-size-chart-v1'
 
 // Report names only; environment values and secrets must never be returned to visitors.
 function missingBindings(env: Bindings | undefined): string[] {
@@ -538,10 +538,12 @@ app.get('/api/admin/orders/:id/payment-proof-url', async c => { const { data: o 
 app.get('/api/admin/products/upload-check', async c => {
   const sb = service(c.env)
   const { error: productError } = await sb.from('products').select('id,color_images,color_image_paths').limit(1)
+  const { error: sizeChartError } = await sb.from('products').select('id,size_chart_url,size_chart_path').limit(1)
   const { data: bucket, error: bucketError } = await sb.storage.getBucket('product-images')
   const mimeTypes = bucket?.allowed_mime_types || []
   const checks = {
     product_columns: !productError,
+    size_chart_columns: !sizeChartError,
     storage_bucket: !bucketError && !!bucket,
     storage_public: !!bucket?.public,
     storage_file_limit: !!bucket && (bucket.file_size_limit == null || Number(bucket.file_size_limit) >= 5 * 1024 * 1024),
@@ -549,6 +551,7 @@ app.get('/api/admin/products/upload-check', async c => {
   }
   const problems: string[] = []
   if (productError) problems.push(`Kolom foto warna bermasalah: ${productError.message} (${productError.code || 'DB'})`)
+  if (sizeChartError) problems.push(`Kolom size chart belum siap: ${sizeChartError.message}. Jalankan migrasi 009_product_size_chart.sql.`)
   if (bucketError || !bucket) problems.push(`Bucket product-images tidak ditemukan/dapat dibaca: ${bucketError?.message || 'Belum tersedia'}`)
   if (bucket && !checks.storage_public) problems.push('Bucket product-images harus public agar foto katalog dapat dilihat pembeli.')
   if (bucket && !checks.storage_file_limit) problems.push('Batas ukuran bucket harus minimal 5 MB.')
@@ -635,7 +638,7 @@ app.put('/api/admin/products/:id', async c => {
   const id = c.req.param('id')
   if (!isUuid(id)) return c.json({ error: 'ID produk tidak valid.' }, 400)
   const sb = service(c.env)
-  const { data: current, error: readErr } = await sb.from('products').select('id,color_images,color_image_paths').eq('id', id).maybeSingle()
+  const { data: current, error: readErr } = await sb.from('products').select('id,color_images,color_image_paths,size_chart_url,size_chart_path').eq('id', id).maybeSingle()
   if (readErr) throw readErr
   if (!current) return c.json({ error: 'Produk tidak ditemukan.' }, 404)
   const b = await c.req.json()
@@ -645,13 +648,19 @@ app.put('/api/admin/products/:id', async c => {
   const nextColors = new Set(row.colors)
   const color_images = Object.fromEntries(Object.entries(previousUrls).filter(([color]) => nextColors.has(color)))
   const color_image_paths = Object.fromEntries(Object.entries(previousPaths).filter(([color]) => nextColors.has(color)))
-  const { data, error } = await sb.from('products').update({ ...row, color_images, color_image_paths }).eq('id', id).select().single()
+  // Reset the image if the product no longer uses sizes (or admin explicitly removes it).
+  const clearSizeChart = row.sizes.length === 0 || b.remove_size_chart === true
+  const sizeChartPatch = clearSizeChart ? { size_chart_url: null, size_chart_path: null } : {}
+  const { data, error } = await sb.from('products').update({ ...row, color_images, color_image_paths, ...sizeChartPatch }).eq('id', id).select().single()
   if (error) throw error
   // Bersihkan file untuk warna yang sudah dihapus setelah data berhasil disimpan.
   const obsolete = Object.entries(previousPaths)
     .filter(([color, path]) => !nextColors.has(color) && path.startsWith(`products/${id}/colors/`))
     .map(([, path]) => path)
   if (obsolete.length) await sb.storage.from('product-images').remove(obsolete).catch(() => undefined)
+  if (clearSizeChart && current.size_chart_path?.startsWith(`products/${id}/size-charts/`)) {
+    await sb.storage.from('product-images').remove([current.size_chart_path]).catch(() => undefined)
+  }
   return c.json(data)
 })
 function plainStringMap(value: unknown): Record<string, string> {
@@ -745,12 +754,47 @@ app.post('/api/admin/products/:id/color-image', async c => {
   }
   return c.json(data)
 })
+// Size chart upload shares the public product-images bucket with the catalog photos,
+// but uses a dedicated folder/columns and the existing admin session protection.
+app.post('/api/admin/products/:id/size-chart', async c => {
+  const id = c.req.param('id')
+  if (!isUuid(id)) return c.json({ error: 'ID produk tidak valid.' }, 400)
+  const sb = service(c.env)
+  const { data: p, error: lookupError } = await sb.from('products')
+    .select('id,product_type,sizes,size_chart_path').eq('id', id).maybeSingle()
+  if (lookupError) throw lookupError
+  if (!p) return c.json({ error: 'Produk tidak ditemukan.' }, 404)
+  if (p.product_type === 'emoney_card' || !Array.isArray(p.sizes) || p.sizes.length === 0) {
+    return c.json({ error: 'Tambahkan ukuran produk terlebih dahulu sebelum upload size chart.' }, 400)
+  }
+  const body = await c.req.parseBody()
+  const file = body.file
+  if (!(file instanceof File)) return c.json({ error: 'Pilih file size chart.' }, 400)
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size === 0 || file.size > 5 * 1024 * 1024) {
+    return c.json({ error: 'Size chart harus JPG, PNG, atau WebP, maksimal 5 MB.' }, 400)
+  }
+  const path = randomPath(`products/${id}/size-charts`, file)
+  const { error: uploadError } = await sb.storage.from('product-images').upload(path, file, { contentType: file.type, upsert: false })
+  if (uploadError) throw uploadError
+  const { data: publicData } = sb.storage.from('product-images').getPublicUrl(path)
+  const { data, error } = await sb.from('products')
+    .update({ size_chart_url: publicData.publicUrl, size_chart_path: path, updated_at: new Date().toISOString() })
+    .eq('id', id).select().single()
+  if (error) {
+    await sb.storage.from('product-images').remove([path]).catch(() => undefined)
+    throw error
+  }
+  if (p.size_chart_path?.startsWith(`products/${id}/size-charts/`)) {
+    await sb.storage.from('product-images').remove([p.size_chart_path]).catch(() => undefined)
+  }
+  return c.json(data)
+})
 app.delete('/api/admin/products/:id', async c => {
   const id = c.req.param('id'), sb = service(c.env)
-  const { data: p } = await sb.from('products').select('image_path,color_image_paths').eq('id', id).maybeSingle()
+  const { data: p } = await sb.from('products').select('image_path,color_image_paths,size_chart_path').eq('id', id).maybeSingle()
   const { error } = await sb.from('products').delete().eq('id', id)
   if (error) throw error
-  const paths = [p?.image_path, ...Object.values(plainStringMap(p?.color_image_paths))]
+  const paths = [p?.image_path, p?.size_chart_path, ...Object.values(plainStringMap(p?.color_image_paths))]
     .filter((path): path is string => typeof path === 'string' && path.startsWith(`products/${id}/`))
   if (paths.length) await sb.storage.from('product-images').remove(paths).catch(() => undefined)
   return c.json({ ok: true })

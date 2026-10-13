@@ -14,6 +14,8 @@ export type Product = {
   color_image_paths?: Record<string, string>
   colors: string[]
   sizes: string[]
+  size_chart_url: string | null
+  size_chart_path?: string | null
   active: boolean
   featured: boolean
   specifications: Record<string, string>

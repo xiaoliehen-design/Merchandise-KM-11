@@ -419,6 +419,9 @@ function ProductsAdmin() {
   const [edit, setEdit] = useState<Partial<Product> | null>(null)
   const [image, setImage] = useState<File | null>(null)
   const [colorPhotos, setColorPhotos] = useState<Record<string, File>>({})
+  const [sizeChartFile, setSizeChartFile] = useState<File | null>(null)
+  const [sizeChartPreview, setSizeChartPreview] = useState<string | null>(null)
+  const [removeSizeChart, setRemoveSizeChart] = useState(false)
   const [colorDraft, setColorDraft] = useState('')
   const [sizeDraft, setSizeDraft] = useState('')
   const [specDraft, setSpecDraft] = useState('')
@@ -430,6 +433,13 @@ function ProductsAdmin() {
   const [saveStep, setSaveStep] = useState('')
   const [uploadCheck, setUploadCheck] = useState<{ ok: boolean; checks: Record<string, boolean>; problems: string[] } | null>(null)
   const [checkingUpload, setCheckingUpload] = useState(false)
+
+  useEffect(() => {
+    if (!sizeChartFile) { setSizeChartPreview(null); return }
+    const url = URL.createObjectURL(sizeChartFile)
+    setSizeChartPreview(url)
+    return () => URL.revokeObjectURL(url)
+  }, [sizeChartFile])
 
   async function checkUpload() {
     setCheckingUpload(true)
@@ -448,6 +458,8 @@ function ProductsAdmin() {
     setEdit({ ...product, colors: [...(product.colors || [])], sizes: [...(product.sizes || [])] })
     setImage(null)
     setColorPhotos({})
+    setSizeChartFile(null)
+    setRemoveSizeChart(false)
     setColorDraft('')
     setSizeDraft('')
     setSpecDraft(Object.entries(product.specifications || {}).map(([k, v]) => `${k}=${v}`).join('\n'))
@@ -464,6 +476,9 @@ function ProductsAdmin() {
     try {
       const colors = edit.product_type === 'emoney_card' ? [] : addVariants(edit.colors || [], colorDraft)
       const sizes = edit.product_type === 'emoney_card' ? [] : addVariants(edit.sizes || [], sizeDraft)
+      if (sizeChartFile && (!['image/png', 'image/jpeg', 'image/webp'].includes(sizeChartFile.type) || sizeChartFile.size === 0 || sizeChartFile.size > 5 * 1024 * 1024)) {
+        throw new Error('Size chart harus JPG, PNG, atau WebP, maksimal 5 MB.')
+      }
       const missingPhotos = colors.filter(c => !colorPhotos[c] && !edit.color_images?.[c])
       if (missingPhotos.length) {
         throw new Error(`Upload foto untuk setiap warna terlebih dahulu: ${missingPhotos.join(', ')}. Jika baru mengetik warna, tekan Tambah agar kolom fotonya muncul.`)
@@ -479,10 +494,12 @@ function ProductsAdmin() {
         slug: edit.slug?.trim() || slugify(edit.name),
         specifications: parseSpecifications(specDraft),
         colors,
-        sizes
-      })
+        sizes,
+        remove_size_chart: removeSizeChart || sizes.length === 0
+      } as Partial<Product> & { remove_size_chart: boolean })
       // Setelah produk tersimpan, pertahankan ID agar percobaan ulang tidak membuat duplikat.
       setEdit(saved)
+      setRemoveSizeChart(false)
       if (image) {
         setSaveStep('Mengunggah foto utama…')
         try { saved = await adminApi.uploadProductImage(saved.id, image) }
@@ -500,9 +517,18 @@ function ProductsAdmin() {
         setEdit(saved)
         setColorPhotos(prev => { const next = { ...prev }; delete next[color]; return next })
       }
+      if (sizeChartFile && sizes.length > 0) {
+        setSaveStep('Mengunggah size chart…')
+        try { saved = await adminApi.uploadSizeChart(saved.id, sizeChartFile) }
+        catch (e) { throw new Error(`Size chart: ${readableApiError(e) || 'Upload gagal.'}`) }
+        setEdit(saved)
+        setSizeChartFile(null)
+      }
       setEdit(null)
       setImage(null)
       setColorPhotos({})
+      setSizeChartFile(null)
+      setRemoveSizeChart(false)
       setColorDraft('')
       setSizeDraft('')
       setSaveStep('Menyegarkan daftar produk…')
@@ -531,7 +557,7 @@ function ProductsAdmin() {
         {checkingUpload ? 'Memeriksa…' : 'Periksa penyimpanan foto'}
       </button>
       {uploadCheck && <div className={`product-upload-check ${uploadCheck.ok ? 'is-ok' : 'is-error'}`}>
-        {uploadCheck.ok ? 'Database dan bucket foto tampak siap.' : 'Ditemukan masalah konfigurasi penyimpanan:'}
+        {uploadCheck.ok ? 'Database, kolom size chart, dan bucket foto tampak siap.' : 'Ditemukan masalah konfigurasi penyimpanan:'}
         {uploadCheck.problems.length > 0 && <ul>{uploadCheck.problems.map((issue, i) => <li key={i}>{issue}</li>)}</ul>}
       </div>}
     </div>
@@ -574,6 +600,23 @@ function ProductsAdmin() {
               />)}</div>
             : <div className="color-photo-empty">Belum ada warna. Tambahkan warna di atas untuk mengunggah foto khusus setiap varian.</div>}
         </div>
+        <div className="size-chart-editor">
+          <div className="color-photo-heading"><h3>Size chart produk</h3><span>1 produk = 1 size chart</span></div>
+          <p>Upload satu gambar panduan ukuran untuk produk ini. Pembeli dapat melihatnya dari tombol info di samping pilihan ukuran, termasuk saat memilih barang dalam paket.</p>
+          {(edit.sizes || []).length > 0 || sizeDraft.trim() ? <div className="size-chart-edit-body">
+            <div className="size-chart-edit-preview">
+              {sizeChartPreview || (!removeSizeChart && edit.size_chart_url) ? <img src={sizeChartPreview || edit.size_chart_url || ''} alt={`Size chart ${edit.name || 'produk'}`}/> : <span>Belum ada size chart</span>}
+            </div>
+            <div className="size-chart-edit-controls">
+              <label>Gambar size chart (JPG, PNG, WebP · maksimal 5 MB)
+                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={e => { setSizeChartFile(e.target.files?.[0] || null); setRemoveSizeChart(false); e.currentTarget.value = '' }} />
+              </label>
+              <small>{sizeChartFile ? `File baru: ${sizeChartFile.name}` : !removeSizeChart && edit.size_chart_url ? 'Size chart saat ini sudah tersimpan. Pilih file untuk menggantinya.' : 'Belum ada size chart. Tombol info akan tersedia setelah gambar disimpan.'}</small>
+              {(sizeChartFile || (!removeSizeChart && !!edit.size_chart_url)) && <button type="button" className="secondary size-chart-remove" onClick={() => { setSizeChartFile(null); setRemoveSizeChart(true) }}>Hapus size chart</button>}
+              {removeSizeChart && <small>Size chart akan dihapus saat menekan Simpan produk.</small>}
+            </div>
+          </div> : <div className="color-photo-empty">Tambahkan ukuran terlebih dahulu untuk mengunggah size chart.</div>}
+        </div>
       </div>}
       <div className="product-editor-section">
         <h3>Detail dan media</h3>
@@ -596,7 +639,7 @@ function ProductsAdmin() {
         <div className="admin-product-weight">{product.weight_grams} gram</div>
         {product.product_type !== 'emoney_card' && <div className="admin-product-variants">
           <div><b>Warna</b><span>{product.colors?.length ? product.colors.join(', ') : '—'}{product.colors?.length ? ` · ${product.colors.filter(color => !!product.color_images?.[color]).length}/${product.colors.length} foto` : ''}</span></div>
-          <div><b>Ukuran</b><span>{product.sizes?.length ? product.sizes.join(', ') : '—'}</span></div>
+          <div><b>Ukuran</b><span>{product.sizes?.length ? product.sizes.join(', ') : '—'}{product.sizes?.length ? (product.size_chart_url ? ' · size chart tersedia' : ' · tanpa size chart') : ''}</span></div>
         </div>}
       </div>
       <div className="action-row admin-product-actions"><button type="button" className="mini" onClick={() => startEditing(product)}><Edit3 size={15}/> Edit</button><button type="button" className="mini danger" onClick={() => remove(product)}><Trash2 size={15}/> Hapus</button></div>

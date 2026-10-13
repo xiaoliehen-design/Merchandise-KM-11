@@ -1,11 +1,54 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Check, CreditCard, Minus, Plus, ShoppingCart, Sparkles, X, Search, Gift, Shirt, NotebookTabs, Package, ArrowRight }  from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { Check, CreditCard, Minus, Plus, ShoppingCart, Sparkles, X, Search, Gift, Shirt, NotebookTabs, Package, ArrowRight, Info }  from 'lucide-react'
 import { catalogApi } from './api'
 import { resolveProductImage } from './colorImages'
 import { useCart } from './CartContext'
 import { EMONEY_BACK_URL, EMONEY_TEMPLATES, defaultEmoneyCustomization, drawEmoneyBaseTemplate, renderEmoneyDataUrl, renderEmoneyPreview } from './emoney'
 import type { Product, ProductBundle, CartItem, BundleCartComponent, LaunchSettings } from './types'
 import { rupiah } from './utils'
+
+function SizeChartModal({ product, onClose }: { product: Product; onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const oldOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    closeRef.current?.focus()
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.stopPropagation(); onClose() }
+      if (event.key === 'Tab') { event.preventDefault(); closeRef.current?.focus() }
+    }
+    document.addEventListener('keydown', keydown, true)
+    return () => {
+      document.body.style.overflow = oldOverflow
+      document.removeEventListener('keydown', keydown, true)
+      previous?.focus()
+    }
+  }, [onClose])
+
+  return createPortal(<div className="modal-backdrop size-chart-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) onClose() }}>
+    <div className="modal-card size-chart-modal" role="dialog" aria-modal="true" aria-label={`Panduan ukuran ${product.name}`}>
+      <div className="size-chart-modal-heading"><div><span className="eyebrow">Panduan ukuran</span><h2>Size Chart — {product.name}</h2></div><button type="button" ref={closeRef} className="icon" onClick={onClose} aria-label="Tutup size chart"><X size={21}/></button></div>
+      <div className="size-chart-modal-image"><img src={product.size_chart_url || ''} alt={`Tabel ukuran untuk ${product.name}`} /></div>
+      <p>Sesuaikan pilihan ukuran dengan panduan pada gambar sebelum menambahkan produk ke keranjang.</p>
+    </div>
+  </div>, document.body)
+}
+
+function ProductSizeField({ product, value, onChange, placeholder }: { product: Product; value: string; onChange: (value: string) => void; placeholder?: string }) {
+  const selectId = useId()
+  const [open, setOpen] = useState(false)
+  if (!product.sizes?.length) return null
+  return <div className="product-size-field">
+    <div className="size-field-heading"><label htmlFor={selectId}>Ukuran</label>{product.size_chart_url && <button type="button" className="size-chart-info" onClick={() => setOpen(true)} aria-label={`Lihat size chart ${product.name}`} title="Lihat panduan ukuran"><Info size={15}/><span>Info</span></button>}</div>
+    <select id={selectId} value={value} onChange={e => onChange(e.target.value)}>
+      {placeholder && <option value="">{placeholder}</option>}
+      {product.sizes.map(v => <option key={v} value={v}>{v}</option>)}
+    </select>
+    {open && !!product.size_chart_url && <SizeChartModal product={product} onClose={() => setOpen(false)}/>}
+  </div>
+}
 
 function ProductCard({ p, onOpenCustomizer, launch }: { p: Product; onOpenCustomizer: (product: Product) => void; launch?: LaunchSettings }) {
   const { add } = useCart()
@@ -43,7 +86,7 @@ function ProductCard({ p, onOpenCustomizer, launch }: { p: Product; onOpenCustom
       </div>
       <div className="price-area">{launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date()) && <><span className="price-old">{rupiah(p.base_price)}</span><span className="discount-pill">-{launch.standard}%</span></>}<strong className="price">{rupiah(launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date()) ? Math.round(p.base_price * (1-launch.standard/100)) : p.base_price)}</strong></div>
       {!isEmoney && !!p.colors?.length && <label>Warna<select value={color} onChange={e => { setColor(e.target.value); setAdded(false) }}>{p.colors.map(v => <option key={v}>{v}</option>)}</select></label>}
-      {!isEmoney && !!p.sizes?.length && <label>Ukuran<select value={size} onChange={e => setSize(e.target.value)}>{p.sizes.map(v => <option key={v}>{v}</option>)}</select></label>}
+      {!isEmoney && <ProductSizeField product={p} value={size} onChange={setSize}/>}
       <div className="qty-row"><span>Jumlah</span><div className="qty-control"><button onClick={() => setQty(Math.max(1, qty - 1))}><Minus size={16}/></button><b>{qty}</b><button onClick={() => setQty(qty + 1)}><Plus size={16}/></button></div></div>
       {isEmoney
         ? <button className="primary" onClick={() => onOpenCustomizer(p)}><CreditCard size={18}/> Atur desain kartu</button>
@@ -239,7 +282,7 @@ function BundleCustomizerModal({ bundle, products, onClose, onDesign }: {
         <div className="bundle-config-content"><span className="eyebrow">Produk {idx+1} dari {children.length}</span><h3>{p.name}</h3>
           {isCard ? <><p>Atur template, nama, foto, dan setujui desain kartu terlebih dahulu.</p><button type="button" className="secondary" onClick={() => onDesign(p, item => saveDesign(p,item))}>{choice?.customization ? 'Ubah desain kartu' : 'Desain kartu sekarang'}</button>{choice?.customization && <span className="bundle-choice-ready"><Check size={15}/> Desain tersimpan: {choice.customization.customerName}</span>}</> : <div className="bundle-config-variants">
             {!!p.colors?.length && <label>Warna<select value={choice?.color || ''} onChange={e => patch(p,'color',e.target.value)}><option value="">Pilih warna</option>{p.colors.map(value => <option key={value} value={value}>{value}</option>)}</select></label>}
-            {!!p.sizes?.length && <label>Ukuran<select value={choice?.size || ''} onChange={e => patch(p,'size',e.target.value)}><option value="">Pilih ukuran</option>{p.sizes.map(value => <option key={value} value={value}>{value}</option>)}</select></label>}
+            {!!p.sizes?.length && <ProductSizeField product={p} value={choice?.size || ''} onChange={value => patch(p,'size',value)} placeholder="Pilih ukuran"/>}
             {!p.colors?.length && !p.sizes?.length && <span className="bundle-choice-ready"><Check size={15}/> Tidak ada varian yang perlu dipilih</span>}
           </div>}
         </div>
