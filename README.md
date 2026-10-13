@@ -1,3 +1,13 @@
+
+## Pembaruan cek ongkir: fallback 3 provider (13 Oktober 2026)
+
+Penghitungan ongkir checkout otomatis menggunakan **RajaOngkir utama → AgenWebsite → RajaOngkir akun kedua**.
+Tambahkan Cloudflare Secret baru `RAJAONGKIR_API_KEY_2` dari akun RajaOngkir kedua (Shipping Cost API Key).
+Pencarian lokasi menggunakan urutan serupa; pemetaan AgenWebsite ke RajaOngkir menggunakan kode pos dan lokalitas unik agar tidak salah alamat.
+Sistem memverifikasi lagi provider terpilih sebelum menyimpan order, tanpa menerima harga dari browser.
+Lihat `PANDUAN_FALLBACK_TIGA_PROVIDER_2026-10-13.md` dan jalankan `npm run test:shipping3`.
+Tidak diperlukan migrasi SQL. Tracking resi tetap melalui 17TRACK.
+
 # Merchic — Merchandise Kemenkeu Mengajar 11
 
 Full-stack order application for **Kemenkeu Mengajar 11 merchandise**. Visual merchandising mengikuti desain Merchic biru/kuning dan referensi landing page KM11; hero menggunakan visual ilustratif pegawai Kemenkeu berbelanja offline.

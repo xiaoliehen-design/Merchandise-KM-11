@@ -92,7 +92,7 @@ export const cartApi = {
 }
 
 export const shippingApi = {
-  destinations: (q: string, fallback = false) => apiGet<Array<{ id: string; label: string; zip_code?: string; provider: 'rajaongkir' | 'agenwebsite'; token: string }>>(`/shipping/destinations?q=${encodeURIComponent(q)}${fallback ? '&provider=agenwebsite' : ''}`),
+  destinations: (q: string, fallback = false) => apiGet<Array<{ id: string; label: string; zip_code?: string; provider: 'rajaongkir' | 'agenwebsite'; source?: 'rajaongkir' | 'agenwebsite' | 'rajaongkir_2'; token: string }>>(`/shipping/destinations?q=${encodeURIComponent(q)}${fallback ? '&provider=agenwebsite' : ''}`),
   quotes: (payload: { destinationId: string; destinationToken: string; weight: number }) => apiJson<ShippingQuote[]>('/shipping/quotes', 'POST', payload)
 }
 

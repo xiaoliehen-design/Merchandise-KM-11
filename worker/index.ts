@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { allocateBundlePrice } from './bundlePricing'
-import { findDestinations, getShippingQuotes, verifyDestination } from './shippingFallback'
+import { findDestinations, getShippingQuotes, verifyDestination, type ShippingProvider } from './shippingFallback'
 import { get17, register17 } from './tracking17'
 import { computeDiscounts, type DiscountSettings } from './promotions'
 
@@ -11,6 +11,7 @@ type Bindings = {
   SUPABASE_ANON_KEY: string
   SUPABASE_SERVICE_ROLE_KEY: string
   RAJAONGKIR_API_KEY?: string
+  RAJAONGKIR_API_KEY_2?: string
   RAJAONGKIR_BASE_URL: string
   RAJAONGKIR_MOCK?: string
   AGENWEBSITE_API_KEY?: string
@@ -30,7 +31,7 @@ function anon(env: Bindings): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
 }
 const REQUIRED_BINDINGS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'CART_SECRET'] as const
-const WORKER_REVISION = 'merchic-promotions-audit-v2'
+const WORKER_REVISION = 'merchic-shipping-waterfall-3-v1'
 
 // Report names only; environment values and secrets must never be returned to visitors.
 function missingBindings(env: Bindings | undefined): string[] {
@@ -317,7 +318,13 @@ app.post('/api/orders', async c => {
     const destination = await verifyDestination(c.env, cleanText(b.destinationToken, 3000), destinationId)
     destinationLabel = destination.label
     const requested = b.shippingQuote || {}
-    const quotes = await getShippingQuotes(c.env, destination, Math.max(1, weight), await getSettings(c.env))
+    const requestedProvider = cleanText(requested.provider, 30)
+    // Revalidate only the provider shown to the buyer. A recovered primary API
+    // must not silently replace an AgenWebsite or second-account quote.
+    if (!['rajaongkir', 'agenwebsite', 'rajaongkir_2', ...(isMock(c.env) ? ['mock'] : [])].includes(requestedProvider)) {
+      return c.json({ error: 'Penyedia ongkir tidak valid. Silakan hitung ulang ongkir.' }, 400)
+    }
+    const quotes = await getShippingQuotes(c.env, destination, Math.max(1, weight), await getSettings(c.env), fetch, requestedProvider as ShippingProvider)
     const match = quotes.find((x: any) => x.courier.toLowerCase() === cleanText(requested.courier, 60).toLowerCase() && x.service.toLowerCase() === cleanText(requested.service, 60).toLowerCase() && x.provider === requested.provider)
     if (!match) return c.json({ error: 'Layanan kirim tidak tersedia lagi. Silakan hitung ulang ongkir.' }, 409)
     shippingCost = Number(match.cost); shippingCourier = match.courier; shippingService = match.service

@@ -16,7 +16,8 @@
     "test:promos": "node scripts/test-merchic-promos.mjs",
     "test:contacts": "node scripts/test-contacts.mjs",
     "test:orders": "node --experimental-strip-types scripts/test-orders-admin.mjs",
-    "test:addresses": "node --experimental-strip-types scripts/test-order-address.mjs"
+    "test:addresses": "node --experimental-strip-types scripts/test-order-address.mjs",
+    "test:shipping3": "node scripts/test-three-shipping-providers.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.0",

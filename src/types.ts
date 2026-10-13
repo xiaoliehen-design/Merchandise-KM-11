@@ -90,7 +90,7 @@ export type PaymentMethod = {
 }
 
 export type ShippingQuote = {
-  provider: 'rajaongkir' | 'agenwebsite' | 'mock'
+  provider: 'rajaongkir' | 'agenwebsite' | 'rajaongkir_2' | 'mock'
   courier: string
   service: string
   description?: string
