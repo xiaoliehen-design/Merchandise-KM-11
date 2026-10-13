@@ -236,3 +236,13 @@ body{background:#f6f9ff}
 .admin-order-fulfillment{display:flex;flex-direction:column;gap:5px;min-width:170px;max-width:300px;overflow-wrap:anywhere}
 .admin-order-fulfillment>strong{color:#102d62}
 .table-wrap td .admin-order-fulfillment small{margin-top:0;line-height:1.5}
+
+/* Alamat pengiriman dibuat jelas dan tidak terpotong, untuk ketepatan pengemasan. */
+.admin-order-address{min-width:210px;max-width:340px;display:flex;flex-direction:column;gap:5px;overflow-wrap:anywhere;word-break:normal;text-align:left}
+.admin-order-address .admin-address-label{font-size:11px;font-weight:800;color:#647b9d;line-height:1.35}
+.admin-order-address .admin-address-value{white-space:pre-wrap;color:#122d58;line-height:1.55;font-weight:650}
+.admin-order-address .admin-address-region{color:#0756c9;font-weight:700;white-space:pre-wrap;line-height:1.45}
+.admin-order-address .admin-address-warning{color:#a24213;font-size:12px;line-height:1.5}
+.admin-order-address.is-pickup{color:#506784;font-size:12px}
+.table-wrap td .admin-order-address.is-pickup small{margin-top:2px;line-height:1.5}
+@media(max-width:720px){.admin-order-address{min-width:190px;max-width:260px}}

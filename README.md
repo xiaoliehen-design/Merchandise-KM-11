@@ -209,3 +209,8 @@ Lihat `PANDUAN_KONTAK_MERCHIC.md`; setelah migrasi 007, jalankan `supabase/migra
 ## Pembaruan daftar pesanan dan Export Excel (13 Oktober 2026)
 
 Setiap item pesanan admin menampilkan warna/ukuran jika tersedia; pemenuhan menampilkan kurir serta layanan untuk pengiriman, atau lokasi dan slot pickup WIB untuk ambil di tempat. Workbook Excel mempertahankan sheet Orders, Items, Summary dengan kolom-kolom tambahan detail tersebut. Baca `PANDUAN_UPDATE_DETAIL_PESANAN_ADMIN.md`. Tidak memerlukan migrasi SQL baru.
+
+
+## Pembaruan alamat pengiriman admin (13 Oktober 2026)
+
+Kolom alamat lengkap kini terlihat pada Admin > Pesanan dan sheet Excel Orders/Items. Sumbernya `orders.address` dan `shipping_destination_label` dari checkout. Data pickup tidak dianggap alamat pengiriman. Baca `PANDUAN_UPDATE_ALAMAT_ADMIN_DAN_EXCEL.md` untuk detail dan tes `npm run test:addresses`.

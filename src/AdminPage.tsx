@@ -6,7 +6,7 @@ import { readableApiError } from './apiError'
 import { resolveProductImage } from './colorImages'
 import type { Order, PaymentMethod, PickupLocation, Product, ProductBundle, LaunchSettings, PromoCode, AuditLog } from './types'
 import { dt, rupiah, slugify, statusLabel } from './utils'
-import { itemVariantText, orderExportData, orderFulfillment, sortedOrderItems } from './orderAdminData'
+import { itemVariantText, orderExportData, orderFulfillment, shippingAddressDetails, sortedOrderItems } from './orderAdminData'
 
 type Tab = 'orders' | 'products' | 'pickups' | 'payments' | 'settings' | 'promotions' | 'audit' | 'account'
 
@@ -157,7 +157,7 @@ function OrdersAdmin() {
   }
 
   useEffect(() => { load() }, [status]) // eslint-disable-line react-hooks/exhaustive-deps
-  const filtered = useMemo(() => orders.filter(o => `${o.receipt_no} ${o.full_name} ${o.email} ${o.phone}`.toLowerCase().includes(q.toLowerCase())), [orders, q])
+  const filtered = useMemo(() => orders.filter(o => `${o.receipt_no} ${o.full_name} ${o.email} ${o.phone} ${o.address || ''} ${o.shipping_destination_label || ''} ${o.pickup_location_name || ''}`.toLowerCase().includes(q.toLowerCase())), [orders, q])
 
   async function verify(id: string) { if (!confirm('Verifikasi bukti bayar untuk order ini?')) return; try { await adminApi.verify(id); await load() } catch (e) { setError((e as Error).message) } }
   async function proof(id: string) { try { const r = await adminApi.paymentProofUrl(id); window.open(r.url, '_blank', 'noopener,noreferrer') } catch (e) { setError((e as Error).message) } }
@@ -179,11 +179,12 @@ function OrdersAdmin() {
         const sheet = rows.length ? XLSX.utils.json_to_sheet(rows) : XLSX.utils.aoa_to_sheet([fallbackHeaders])
         const headers = rows.length ? Object.keys(rows[0]) : fallbackHeaders
         // Lebar terkontrol supaya nama produk, layanan, dan slot mudah dibaca.
-        sheet['!cols'] = headers.map(header => ({ wch: Math.min(48, Math.max(13, header.length + 2, ...rows.slice(0, 100).map(row => Math.min(48, String(row[header] ?? '').split('\n')[0].length + 2)) )) }))
+        sheet['!cols'] = headers.map(header => ({ wch: header === 'Alamat Lengkap Pengiriman' ? 65 : header === 'Alamat Detail Pembeli' || header === 'AlamatKirim' ? 52 : Math.min(48, Math.max(13, header.length + 2, ...rows.slice(0, 100).map(row => Math.min(48, String(row[header] ?? '').split('\n')[0].length + 2)))) }))
+        if (rows.length) sheet['!autofilter'] = { ref: sheet['!ref'] as string }
         XLSX.utils.book_append_sheet(wb, sheet, name)
       }
-      appendSheet(orderRows, 'Orders', ['Receipt', 'MetodePemenuhan', 'RincianItem'])
-      appendSheet(itemRows, 'Items', ['Receipt', 'Produk', 'Warna', 'Ukuran', 'MetodePemenuhan', 'Kurir', 'LayananKirim', 'SlotPickupWIB'])
+      appendSheet(orderRows, 'Orders', ['Receipt', 'Nama', 'HP', 'Alamat Lengkap Pengiriman', 'MetodePemenuhan', 'RincianItem'])
+      appendSheet(itemRows, 'Items', ['Receipt', 'NamaPembeli', 'HP', 'Alamat Lengkap Pengiriman', 'Produk', 'Warna', 'Ukuran', 'MetodePemenuhan', 'Kurir', 'LayananKirim', 'SlotPickupWIB'])
       appendSheet(summaryRows, 'Summary', ['Metric', 'Value'])
       XLSX.writeFile(wb, `Merchic-orders-${new Date().toISOString().slice(0, 10)}.xlsx`)
     } catch (e) { setError(`Gagal membuat Excel: ${(e as Error).message}`) }
@@ -193,9 +194,22 @@ function OrdersAdmin() {
     <AdminHeader title="Pesanan" actions={<><button className="secondary" onClick={load}><RefreshCw size={17}/> Refresh</button><button className="primary" onClick={exportExcel}><Download size={17}/> Export Excel</button></>}/>
     <div className="stats-grid"><Stat label="Total" value={summary.total_orders || 0}/><Stat label="Baru" value={summary.new_orders || 0}/><Stat label="Terverifikasi" value={summary.verified_orders || 0}/><Stat label="Dikirim" value={summary.shipped_orders || 0}/><Stat label="Selesai" value={summary.completed_orders || 0}/><Stat label="Nilai order" value={rupiah(summary.order_value || 0)}/></div>
     {error && <div className="alert error">{error}</div>}
-    <div className="admin-toolbar panel"><div className="search-box"><Search size={17}/><input placeholder="Cari receipt, nama, email, HP..." value={q} onChange={e => setQ(e.target.value)}/></div><select value={status} onChange={e => setStatus(e.target.value)}><option value="">Semua status</option><option value="new">Baru</option><option value="verified">Terverifikasi</option><option value="shipped">Dikirim</option><option value="completed">Selesai</option></select></div>
-    <div className="table-wrap panel"><table><thead><tr><th>Receipt</th><th>Customer</th><th>Status</th><th>Item · Warna · Ukuran</th><th>Total</th><th>Metode kirim / Pickup</th><th>Dibuat</th><th>Aksi</th></tr></thead><tbody>{filtered.map(o => <tr key={o.id}><td><b>{o.receipt_no}</b></td><td>{o.full_name}<small>{o.email}<br/>{o.phone}</small></td><td><span className={`status-badge ${o.status}`}>{statusLabel[o.status]}</span></td><td><div className="admin-order-items">{sortedOrderItems(o).map(it => <div className="admin-order-item" key={it.id}><b>{it.quantity}× {it.product_name}</b>{itemVariantText(it) && <small className="admin-order-variants">{itemVariantText(it)}</small>}{(it.customization as any)?.customerName && <small>Nama custom: {(it.customization as any).customerName}</small>}{it.design_image_url && <a className="tiny-link" href={it.design_image_url} target="_blank" rel="noreferrer">Unduh desain</a>}</div>)}</div></td><td>{rupiah(o.total)}</td><td><OrderFulfillmentCell order={o}/></td><td>{dt(o.created_at)}</td><td><div className="action-row"><button className="mini" onClick={() => proof(o.id)}>Bukti</button>{o.status === 'new' && <button className="mini success" onClick={() => verify(o.id)}>Verifikasi</button>}{o.status !== 'new' && o.fulfillment_type === 'ship' && <button className="mini" onClick={() => tracking(o)}><Truck size={14}/> Resi</button>}{o.status === 'verified' && o.fulfillment_type === 'pickup' && <button className="mini success" onClick={() => completePickup(o)}><CheckCircle2 size={14}/> Selesai</button>}</div></td></tr>)}</tbody></table>{!filtered.length && <div className="empty compact">{busy ? 'Memuat…' : 'Tidak ada order.'}</div>}</div>
+    <div className="admin-toolbar panel"><div className="search-box"><Search size={17}/><input placeholder="Cari receipt, nama, HP, atau alamat..." value={q} onChange={e => setQ(e.target.value)}/></div><select value={status} onChange={e => setStatus(e.target.value)}><option value="">Semua status</option><option value="new">Baru</option><option value="verified">Terverifikasi</option><option value="shipped">Dikirim</option><option value="completed">Selesai</option></select></div>
+    <div className="table-wrap panel"><table><thead><tr><th>Receipt</th><th>Customer</th><th>Alamat lengkap pengiriman</th><th>Status</th><th>Item · Warna · Ukuran</th><th>Total</th><th>Metode kirim / Pickup</th><th>Dibuat</th><th>Aksi</th></tr></thead><tbody>{filtered.map(o => <tr key={o.id}><td><b>{o.receipt_no}</b></td><td>{o.full_name}<small>{o.email}<br/>{o.phone}</small></td><td><OrderAddressCell order={o}/></td><td><span className={`status-badge ${o.status}`}>{statusLabel[o.status]}</span></td><td><div className="admin-order-items">{sortedOrderItems(o).map(it => <div className="admin-order-item" key={it.id}><b>{it.quantity}× {it.product_name}</b>{itemVariantText(it) && <small className="admin-order-variants">{itemVariantText(it)}</small>}{(it.customization as any)?.customerName && <small>Nama custom: {(it.customization as any).customerName}</small>}{it.design_image_url && <a className="tiny-link" href={it.design_image_url} target="_blank" rel="noreferrer">Unduh desain</a>}</div>)}</div></td><td>{rupiah(o.total)}</td><td><OrderFulfillmentCell order={o}/></td><td>{dt(o.created_at)}</td><td><div className="action-row"><button className="mini" onClick={() => proof(o.id)}>Bukti</button>{o.status === 'new' && <button className="mini success" onClick={() => verify(o.id)}>Verifikasi</button>}{o.status !== 'new' && o.fulfillment_type === 'ship' && <button className="mini" onClick={() => tracking(o)}><Truck size={14}/> Resi</button>}{o.status === 'verified' && o.fulfillment_type === 'pickup' && <button className="mini success" onClick={() => completePickup(o)}><CheckCircle2 size={14}/> Selesai</button>}</div></td></tr>)}</tbody></table>{!filtered.length && <div className="empty compact">{busy ? 'Memuat…' : 'Tidak ada order.'}</div>}</div>
   </>
+}
+
+function OrderAddressCell({ order }: { order: Order }) {
+  if (order.fulfillment_type !== 'ship') {
+    return <div className="admin-order-address is-pickup"><span>Ambil di tempat</span><small>Alamat pelanggan tidak diminta saat checkout pickup. Lihat lokasi pengambilan di kolom pemenuhan.</small></div>
+  }
+  const { address, destination, missingDetail } = shippingAddressDetails(order)
+  return <div className="admin-order-address">
+    <span className="admin-address-label">Alamat detail dari pembeli</span>
+    {missingDetail ? <strong className="admin-address-warning">Alamat belum tercatat — konfirmasi kepada pembeli.</strong> : <span className="admin-address-value">{address}</span>}
+    {destination && <><span className="admin-address-label">Wilayah tujuan (checkout)</span><span className="admin-address-region">{destination}</span></>}
+    {!destination && <small className="admin-address-warning">Wilayah tujuan belum tercatat.</small>}
+  </div>
 }
 
 function OrderFulfillmentCell({ order }: { order: Order }) {

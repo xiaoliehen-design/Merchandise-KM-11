@@ -54,14 +54,33 @@ export function itemVariantText(item: Pick<OrderItem, 'variant_color' | 'variant
     item.variant_size?.trim() ? `Ukuran: ${item.variant_size.trim()}` : ''].filter(Boolean).join(' · ')
 }
 
+/**
+ * Alamat yang diisi pelanggan dan wilayah yang dipilih pada checkout adalah
+ * dua snapshot terpisah. Jangan menebak kode pos/RT/RW/nomor rumah yang tidak
+ * pernah dikirim pelanggan, dan jangan perlakukan lokasi pickup sebagai alamat pelanggan.
+ */
+export function shippingAddressDetails(order: Pick<Order, 'fulfillment_type' | 'address' | 'shipping_destination_label'>) {
+  const isShip = order.fulfillment_type === 'ship'
+  const address = isShip ? (order.address || '').replace(/\r\n?/g, '\n').trim() : ''
+  const destination = isShip ? (order.shipping_destination_label || '').trim() : ''
+  const destinationAlreadyInAddress = Boolean(destination && address.toLocaleLowerCase('id-ID').includes(destination.toLocaleLowerCase('id-ID')))
+  const fullAddress = !isShip ? '' :
+    [address || 'ALAMAT DETAIL BELUM TERCATAT', destination && !destinationAlreadyInAddress ? `Wilayah tujuan: ${destination}` : '']
+      .filter(Boolean).join('\n')
+  return { address, destination, fullAddress, missingDetail: isShip && !address }
+}
+
 export function orderFulfillment(order: Order) {
   const isShip = order.fulfillment_type === 'ship'
+  const destinationAddress = shippingAddressDetails(order)
   return {
     method: isShip ? 'Kirim' : 'Ambil di tempat',
     courier: isShip ? (order.shipping_courier || '') : '',
     service: isShip ? (order.shipping_service || '') : '',
-    destination: isShip ? (order.shipping_destination_label || '') : '',
-    shippingAddress: isShip ? (order.address || '') : '',
+    destination: destinationAddress.destination,
+    shippingAddress: destinationAddress.address,
+    fullShippingAddress: destinationAddress.fullAddress,
+    addressMissingDetail: destinationAddress.missingDetail,
     pickupLocation: isShip ? '' : (order.pickup_location_name || ''),
     pickupAddress: isShip ? '' : (order.pickup_location_address || ''),
     pickupSlot: isShip ? '' : pickupSlotLabel(order),
@@ -81,6 +100,9 @@ export function orderExportData(orders: Order[]) {
       Nama: order.full_name,
       Email: order.email,
       HP: order.phone,
+      'Alamat Lengkap Pengiriman': f.fullShippingAddress,
+      'Alamat Detail Pembeli': f.shippingAddress,
+      'Wilayah Tujuan': f.destination,
       Fulfillment: order.fulfillment_type,
       Subtotal: Number(order.subtotal || 0),
       DiskonLaunching: Number(order.launch_discount || 0),
@@ -112,6 +134,11 @@ export function orderExportData(orders: Order[]) {
     const f = orderFulfillment(order)
     return sortedOrderItems(order).map((item, idx) => ({
       Receipt: order.receipt_no,
+      NamaPembeli: order.full_name,
+      HP: order.phone,
+      'Alamat Lengkap Pengiriman': f.fullShippingAddress,
+      'Alamat Detail Pembeli': f.shippingAddress,
+      'Wilayah Tujuan': f.destination,
       Produk: item.product_name,
       CustomName: (item.customization as { customerName?: string } | null)?.customerName || '',
       Template: (item.customization as { templateLabel?: string } | null)?.templateLabel || '',
@@ -122,7 +149,6 @@ export function orderExportData(orders: Order[]) {
       Total: Number(item.line_total || 0),
       DesignURL: item.design_image_url || '',
       NomorItem: idx + 1,
-      NamaPembeli: order.full_name,
       Status: ({ new: 'Baru', verified: 'Terverifikasi', shipped: 'Dikirim', completed: 'Selesai' } as Record<string, string>)[order.status] || order.status,
       MetodePemenuhan: f.method,
       Kurir: f.courier,
