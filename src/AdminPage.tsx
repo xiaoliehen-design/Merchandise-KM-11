@@ -6,6 +6,7 @@ import { readableApiError } from './apiError'
 import { resolveProductImage } from './colorImages'
 import type { Order, PaymentMethod, PickupLocation, Product, ProductBundle, LaunchSettings, PromoCode, AuditLog } from './types'
 import { dt, rupiah, slugify, statusLabel } from './utils'
+import { itemVariantText, orderExportData, orderFulfillment, sortedOrderItems } from './orderAdminData'
 
 type Tab = 'orders' | 'products' | 'pickups' | 'payments' | 'settings' | 'promotions' | 'audit' | 'account'
 
@@ -170,49 +171,22 @@ function OrdersAdmin() {
   async function completePickup(o: Order) { if (!confirm('Tandai pesanan pickup ini selesai?')) return; try { await adminApi.complete(o.id); await load() } catch (e) { setError((e as Error).message) } }
 
   function exportExcel() {
-    const rows = filtered.map(o => ({
-      Receipt: o.receipt_no,
-      Status: statusLabel[o.status],
-      Nama: o.full_name,
-      Email: o.email,
-      HP: o.phone,
-      Fulfillment: o.fulfillment_type,
-      Subtotal: o.subtotal,
-      DiskonLaunching: o.launch_discount || 0,
-      DiskonBelanjaBesar: o.volume_discount || 0,
-      KodePromo: o.promo_code || '',
-      DiskonKodePromo: o.promo_discount || 0,
-      Ongkir: o.shipping_cost,
-      Total: o.total,
-      Kurir: o.tracking_courier || o.shipping_courier || '',
-      Resi: o.tracking_number || '',
-      Dibuat: o.created_at,
-      Terverifikasi: o.verified_at || ''
-    }))
-    const itemRows = filtered.flatMap(o => (o.order_items || []).map(i => ({
-      Receipt: o.receipt_no,
-      Produk: i.product_name,
-      CustomName: (i.customization as any)?.customerName || '',
-      Template: (i.customization as any)?.templateLabel || '',
-      Warna: i.variant_color || '',
-      Ukuran: i.variant_size || '',
-      Qty: i.quantity,
-      Harga: i.unit_price,
-      Total: i.line_total,
-      DesignURL: i.design_image_url || ''
-    })))
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Orders')
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(itemRows), 'Items')
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([
-      { Metric: 'Total Order', Value: filtered.length },
-      { Metric: 'Revenue Terverifikasi+', Value: filtered.filter(o => o.status !== 'new').reduce((s, o) => s + o.total, 0) },
-      { Metric: 'Baru', Value: filtered.filter(o => o.status === 'new').length },
-      { Metric: 'Terverifikasi', Value: filtered.filter(o => o.status === 'verified').length },
-      { Metric: 'Dikirim', Value: filtered.filter(o => o.status === 'shipped').length },
-      { Metric: 'Selesai', Value: filtered.filter(o => o.status === 'completed').length }
-    ]), 'Summary')
-    XLSX.writeFile(wb, `KM11-orders-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    if (!filtered.length) { setError('Tidak ada pesanan sesuai filter untuk diekspor.'); return }
+    try {
+      const { orderRows, itemRows, summaryRows } = orderExportData(filtered)
+      const wb = XLSX.utils.book_new()
+      const appendSheet = (rows: Record<string, string | number>[], name: string, fallbackHeaders: string[]) => {
+        const sheet = rows.length ? XLSX.utils.json_to_sheet(rows) : XLSX.utils.aoa_to_sheet([fallbackHeaders])
+        const headers = rows.length ? Object.keys(rows[0]) : fallbackHeaders
+        // Lebar terkontrol supaya nama produk, layanan, dan slot mudah dibaca.
+        sheet['!cols'] = headers.map(header => ({ wch: Math.min(48, Math.max(13, header.length + 2, ...rows.slice(0, 100).map(row => Math.min(48, String(row[header] ?? '').split('\n')[0].length + 2)) )) }))
+        XLSX.utils.book_append_sheet(wb, sheet, name)
+      }
+      appendSheet(orderRows, 'Orders', ['Receipt', 'MetodePemenuhan', 'RincianItem'])
+      appendSheet(itemRows, 'Items', ['Receipt', 'Produk', 'Warna', 'Ukuran', 'MetodePemenuhan', 'Kurir', 'LayananKirim', 'SlotPickupWIB'])
+      appendSheet(summaryRows, 'Summary', ['Metric', 'Value'])
+      XLSX.writeFile(wb, `Merchic-orders-${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } catch (e) { setError(`Gagal membuat Excel: ${(e as Error).message}`) }
   }
 
   return <>
@@ -220,8 +194,25 @@ function OrdersAdmin() {
     <div className="stats-grid"><Stat label="Total" value={summary.total_orders || 0}/><Stat label="Baru" value={summary.new_orders || 0}/><Stat label="Terverifikasi" value={summary.verified_orders || 0}/><Stat label="Dikirim" value={summary.shipped_orders || 0}/><Stat label="Selesai" value={summary.completed_orders || 0}/><Stat label="Nilai order" value={rupiah(summary.order_value || 0)}/></div>
     {error && <div className="alert error">{error}</div>}
     <div className="admin-toolbar panel"><div className="search-box"><Search size={17}/><input placeholder="Cari receipt, nama, email, HP..." value={q} onChange={e => setQ(e.target.value)}/></div><select value={status} onChange={e => setStatus(e.target.value)}><option value="">Semua status</option><option value="new">Baru</option><option value="verified">Terverifikasi</option><option value="shipped">Dikirim</option><option value="completed">Selesai</option></select></div>
-    <div className="table-wrap panel"><table><thead><tr><th>Receipt</th><th>Customer</th><th>Status</th><th>Item</th><th>Total</th><th>Pemenuhan</th><th>Dibuat</th><th>Aksi</th></tr></thead><tbody>{filtered.map(o => <tr key={o.id}><td><b>{o.receipt_no}</b></td><td>{o.full_name}<small>{o.email}<br/>{o.phone}</small></td><td><span className={`status-badge ${o.status}`}>{statusLabel[o.status]}</span></td><td>{(o.order_items || []).map((it, idx) => <small key={idx}><b>{it.quantity}× {it.product_name}</b>{(it.customization as any)?.customerName ? <> · {(it.customization as any).customerName}</> : null}{it.design_image_url ? <><br/><a className="tiny-link" href={it.design_image_url} target="_blank" rel="noreferrer">Unduh desain</a></> : null}</small>)}</td><td>{rupiah(o.total)}</td><td>{o.fulfillment_type === 'ship' ? <>Kirim<small>{o.tracking_number || '-'}</small></> : 'Pickup'}</td><td>{dt(o.created_at)}</td><td><div className="action-row"><button className="mini" onClick={() => proof(o.id)}>Bukti</button>{o.status === 'new' && <button className="mini success" onClick={() => verify(o.id)}>Verifikasi</button>}{o.status !== 'new' && o.fulfillment_type === 'ship' && <button className="mini" onClick={() => tracking(o)}><Truck size={14}/> Resi</button>}{o.status === 'verified' && o.fulfillment_type === 'pickup' && <button className="mini success" onClick={() => completePickup(o)}><CheckCircle2 size={14}/> Selesai</button>}</div></td></tr>)}</tbody></table>{!filtered.length && <div className="empty compact">{busy ? 'Memuat…' : 'Tidak ada order.'}</div>}</div>
+    <div className="table-wrap panel"><table><thead><tr><th>Receipt</th><th>Customer</th><th>Status</th><th>Item · Warna · Ukuran</th><th>Total</th><th>Metode kirim / Pickup</th><th>Dibuat</th><th>Aksi</th></tr></thead><tbody>{filtered.map(o => <tr key={o.id}><td><b>{o.receipt_no}</b></td><td>{o.full_name}<small>{o.email}<br/>{o.phone}</small></td><td><span className={`status-badge ${o.status}`}>{statusLabel[o.status]}</span></td><td><div className="admin-order-items">{sortedOrderItems(o).map(it => <div className="admin-order-item" key={it.id}><b>{it.quantity}× {it.product_name}</b>{itemVariantText(it) && <small className="admin-order-variants">{itemVariantText(it)}</small>}{(it.customization as any)?.customerName && <small>Nama custom: {(it.customization as any).customerName}</small>}{it.design_image_url && <a className="tiny-link" href={it.design_image_url} target="_blank" rel="noreferrer">Unduh desain</a>}</div>)}</div></td><td>{rupiah(o.total)}</td><td><OrderFulfillmentCell order={o}/></td><td>{dt(o.created_at)}</td><td><div className="action-row"><button className="mini" onClick={() => proof(o.id)}>Bukti</button>{o.status === 'new' && <button className="mini success" onClick={() => verify(o.id)}>Verifikasi</button>}{o.status !== 'new' && o.fulfillment_type === 'ship' && <button className="mini" onClick={() => tracking(o)}><Truck size={14}/> Resi</button>}{o.status === 'verified' && o.fulfillment_type === 'pickup' && <button className="mini success" onClick={() => completePickup(o)}><CheckCircle2 size={14}/> Selesai</button>}</div></td></tr>)}</tbody></table>{!filtered.length && <div className="empty compact">{busy ? 'Memuat…' : 'Tidak ada order.'}</div>}</div>
   </>
+}
+
+function OrderFulfillmentCell({ order }: { order: Order }) {
+  const f = orderFulfillment(order)
+  return <div className="admin-order-fulfillment">
+    <strong>{f.method}</strong>
+    {order.fulfillment_type === 'ship' ? <>
+      <small>Kurir: {f.courier || 'Belum tercatat'}</small>
+      <small>Layanan: {f.service || 'Belum tercatat'}</small>
+      {f.destination && <small>Tujuan: {f.destination}</small>}
+      {f.trackingNumber && <small>Resi: {f.trackingNumber}</small>}
+    </> : <>
+      <small>Lokasi: {f.pickupLocation || 'Belum tercatat'}</small>
+      {f.pickupAddress && <small>Alamat: {f.pickupAddress}</small>}
+      <small>Slot: {f.pickupSlot || 'Belum tercatat'}</small>
+    </>}
+  </div>
 }
 
 function distinctVariants(values: string[]): string[] {

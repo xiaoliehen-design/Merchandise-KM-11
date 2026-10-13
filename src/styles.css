@@ -225,3 +225,14 @@ body{background:#f6f9ff}
 .merchic-whatsapp{display:inline-flex;gap:8px;align-items:center;justify-content:center;text-decoration:none}
 .merchic-whatsapp:focus-visible,.merchic-contact-links a:focus-visible{outline:3px solid #ffcf33;outline-offset:4px}
 @media(max-width:640px){.merchic-contact-links{gap:9px!important;flex-direction:column!important;align-items:flex-start}.merchic-whatsapp{right:15px;bottom:16px;padding:11px 14px}}
+
+/* Rincian varian item dan metode pemenuhan pada daftar pesanan admin. */
+.admin-order-items{display:flex;flex-direction:column;gap:10px;min-width:180px}
+.admin-order-item{display:flex;flex-direction:column;gap:3px;padding-bottom:9px;border-bottom:1px solid #e9eff8;overflow-wrap:anywhere}
+.admin-order-item:last-child{border-bottom:0;padding-bottom:0}
+.admin-order-item>b{line-height:1.45}
+.table-wrap td .admin-order-item small.admin-order-variants{margin-top:2px;color:#0b56b2;font-weight:750;line-height:1.5}
+.admin-order-item .tiny-link{font-size:12px;margin-top:2px}
+.admin-order-fulfillment{display:flex;flex-direction:column;gap:5px;min-width:170px;max-width:300px;overflow-wrap:anywhere}
+.admin-order-fulfillment>strong{color:#102d62}
+.table-wrap td .admin-order-fulfillment small{margin-top:0;line-height:1.5}

@@ -104,6 +104,8 @@ export type OrderItem = {
   id: string
   product_name: string
   product_id: string | null
+  checkout_line_index?: number | null
+  created_at?: string
   variant_color: string | null
   variant_size: string | null
   unit_price: number
@@ -125,7 +127,12 @@ export type Order = {
   fulfillment_type: 'ship' | 'pickup'
   pickup_location_id: string | null
   pickup_slot_id: string | null
+  pickup_location_name?: string | null
+  pickup_location_address?: string | null
+  pickup_slot_starts_at?: string | null
+  pickup_slot_ends_at?: string | null
   shipping_destination_id: string | null
+  shipping_destination_label?: string | null
   shipping_courier: string | null
   shipping_service: string | null
   shipping_cost: number

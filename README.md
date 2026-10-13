@@ -205,3 +205,7 @@ dengan ANON KEY pada proyek Supabase yang sama. Jangan menyimpan/commit key atau
 - Instagram: [@km_dkijakarta](https://www.instagram.com/km_dkijakarta/)
 
 Lihat `PANDUAN_KONTAK_MERCHIC.md`; setelah migrasi 007, jalankan `supabase/migrations/008_merchic_official_contacts.sql` agar kontak tersimpan di Supabase. Nilai default tersedia pada frontend/Worker jika settings belum diisi.
+
+## Pembaruan daftar pesanan dan Export Excel (13 Oktober 2026)
+
+Setiap item pesanan admin menampilkan warna/ukuran jika tersedia; pemenuhan menampilkan kurir serta layanan untuk pengiriman, atau lokasi dan slot pickup WIB untuk ambil di tempat. Workbook Excel mempertahankan sheet Orders, Items, Summary dengan kolom-kolom tambahan detail tersebut. Baca `PANDUAN_UPDATE_DETAIL_PESANAN_ADMIN.md`. Tidak memerlukan migrasi SQL baru.
