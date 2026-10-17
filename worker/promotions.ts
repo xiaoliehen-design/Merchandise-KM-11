@@ -1,5 +1,5 @@
 /** Integer rupiah calculations; discount order is launch -> lifetime tier -> code. */
-export type DiscountSettings = { enabled: boolean; standard: number; bundle: number; endAt: string | null }
+export type DiscountSettings = { name?: string; enabled: boolean; standard: number; bundle: number; endAt: string | null }
 type Promo = { code: string; active: boolean; discount_type: string; amount: number; min_order_amount: number; starts_at: string | null; ends_at: string | null }
 const roundRp = (n: number) => Math.round(n)
 export function computeDiscounts(originalSubtotal: number, rawLaunchDiscount: number, promo: Promo | null, settings: DiscountSettings, now = new Date()) {

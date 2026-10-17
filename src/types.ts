@@ -157,8 +157,9 @@ export type Order = {
 export type DiscountBreakdown = {
   originalSubtotal: number; launchActive: boolean; launchDiscount: number;
   volumeEligible: boolean; volumeDiscount: number; promoCode: string | null;
-  promoDiscount: number; payableSubtotal: number
+  promoDiscount: number; payableSubtotal: number; launchName: string
+  lineItems?: Array<{ unitPrice: number; lineTotal: number; surcharge?: number }>
 }
 export type PromoCode = { id: string; code: string; description: string | null; discount_type: 'percent' | 'fixed'; amount: number; min_order_amount: number; starts_at: string | null; ends_at: string | null; active: boolean; created_at: string }
-export type LaunchSettings = { enabled: boolean; standard: number; bundle: number; endAt: string | null }
+export type LaunchSettings = { name: string; enabled: boolean; standard: number; bundle: number; endAt: string | null }
 export type AuditLog = { id: string; admin_id: string | null; admin_username: string; action: string; method: string; resource: string; created_at: string }

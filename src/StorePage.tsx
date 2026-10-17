@@ -7,6 +7,7 @@ import { useCart } from './CartContext'
 import { EMONEY_BACK_URL, EMONEY_TEMPLATES, defaultEmoneyCustomization, drawEmoneyBaseTemplate, renderEmoneyDataUrl, renderEmoneyPreview } from './emoney'
 import type { Product, ProductBundle, CartItem, BundleCartComponent, LaunchSettings } from './types'
 import { rupiah } from './utils'
+import { isClothing, sizeSurcharge, OVERSIZE_SURCHARGE_RP } from '../shared/sizePricing'
 
 function SizeChartModal({ product, onClose }: { product: Product; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -46,6 +47,7 @@ function ProductSizeField({ product, value, onChange, placeholder }: { product: 
       {placeholder && <option value="">{placeholder}</option>}
       {product.sizes.map(v => <option key={v} value={v}>{v}</option>)}
     </select>
+    {isClothing(product) && product.sizes.some(v => sizeSurcharge(product, v) > 0) && <small className="size-surcharge-hint">Ukuran XXL/2XL ke atas: +{rupiah(OVERSIZE_SURCHARGE_RP)} per produk.</small>}
     {open && !!product.size_chart_url && <SizeChartModal product={product} onClose={() => setOpen(false)}/>}
   </div>
 }
@@ -58,12 +60,14 @@ function ProductCard({ p, onOpenCustomizer, launch }: { p: Product; onOpenCustom
   const [added, setAdded] = useState(false)
 
   function onAdd() {
-    add({ productId: p.id, name: p.name, imageUrl: selectedImageUrl, unitPrice: p.base_price, qty, color: color || undefined, size: size || undefined, weightGrams: p.weight_grams })
+    add({ productId: p.id, name: p.name, imageUrl: selectedImageUrl, unitPrice: p.base_price + sizeSurcharge(p, size), qty, color: color || undefined, size: size || undefined, weightGrams: p.weight_grams })
     setAdded(true)
     window.setTimeout(() => setAdded(false), 1200)
   }
 
   const isEmoney = p.product_type === 'emoney_card'
+  const adjustedPrice = p.base_price + sizeSurcharge(p, size)
+  const promoActive = !!launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date())
   const selectedImageUrl = isEmoney ? '/emoney/front-templates.png' : resolveProductImage(p, color)
   const productDescription = isEmoney
     ? 'Katalog kartu e-money custom. Customer dapat memilih 1 dari 4 template, upload foto, mengatur posisi foto/nama, menyetujui preview, lalu hasil PNG final akan tersimpan untuk admin cetak.'
@@ -84,9 +88,9 @@ function ProductCard({ p, onOpenCustomizer, launch }: { p: Product; onOpenCustom
         <p>{productDescription}</p>
         {Object.keys(productSpecs).length > 0 && <dl className="product-specs">{Object.entries(productSpecs).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>}
       </div>
-      <div className="price-area">{launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date()) && <><span className="price-old">{rupiah(p.base_price)}</span><span className="discount-pill">-{launch.standard}%</span></>}<strong className="price">{rupiah(launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date()) ? Math.round(p.base_price * (1-launch.standard/100)) : p.base_price)}</strong></div>
+      <div className="price-area">{promoActive && <><span className="price-old">{rupiah(adjustedPrice)}</span><span className="discount-pill">-{launch!.standard}%</span></>}<strong className="price">{rupiah(promoActive ? Math.round(adjustedPrice * (1-launch!.standard/100)) : adjustedPrice)}</strong></div>
       {!isEmoney && !!p.colors?.length && <label>Warna<select value={color} onChange={e => { setColor(e.target.value); setAdded(false) }}>{p.colors.map(v => <option key={v}>{v}</option>)}</select></label>}
-      {!isEmoney && <ProductSizeField product={p} value={size} onChange={setSize}/>}
+      {!isEmoney && <ProductSizeField product={p} value={size} onChange={v => { setSize(v); setAdded(false) }}/>}
       <div className="qty-row"><span>Jumlah</span><div className="qty-control"><button onClick={() => setQty(Math.max(1, qty - 1))}><Minus size={16}/></button><b>{qty}</b><button onClick={() => setQty(qty + 1)}><Plus size={16}/></button></div></div>
       {isEmoney
         ? <button className="primary" onClick={() => onOpenCustomizer(p)}><CreditCard size={18}/> Atur desain kartu</button>
@@ -235,21 +239,26 @@ function BundleCard({ bundle, products, onOpen, launch }: { bundle: ProductBundl
       {bundle.description && <p>{bundle.description}</p>}
       <div className="bundle-includes">{children.map(p => <span key={p.id}><Check size={14}/>{p.name}</span>)}</div>
       <div className="price-area">{launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date()) && <><span className="price-old">{rupiah(bundle.price)}</span><span className="discount-pill">-{launch.bundle}%</span></>}<strong className="price">{rupiah(launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date()) ? Math.round(bundle.price * (1-launch.bundle/100)) : bundle.price)}</strong></div>
+      {children.some(p => p.sizes?.some(size => sizeSurcharge(p,size) > 0)) && <small className="size-surcharge-hint">Ukuran XXL+ dalam paket: tambahan {rupiah(OVERSIZE_SURCHARGE_RP)} per item.</small>}
       <button className="primary" onClick={() => onOpen(bundle)} disabled={children.length !== bundle.product_ids.length}><ShoppingCart size={18}/> Pilih varian & tambah ke keranjang</button>
     </div>
   </article>
 }
 
-function BundleCustomizerModal({ bundle, products, onClose, onDesign }: {
+function BundleCustomizerModal({ bundle, products, onClose, onDesign, launch }: {
   bundle: ProductBundle
   products: Product[]
   onClose: () => void
   onDesign: (product: Product, onReady: (item: CartItem) => void) => void
+  launch?: LaunchSettings
 }) {
   const { add } = useCart()
   const children = bundle.product_ids.map(id => products.find(p => p.id === id)).filter((p): p is Product => !!p)
   const [choices, setChoices] = useState<Record<string, BundleCartComponent>>({})
   const [error, setError] = useState('')
+  const sizeExtra = children.reduce((sum, product) => sum + sizeSurcharge(product, choices[product.id]?.size), 0)
+  const configuredPrice = Number(bundle.price) + sizeExtra
+  const bundlePromoActive = !!launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date())
   function patch(product: Product, field: 'color' | 'size', value: string) {
     setError('')
     setChoices(prev => ({ ...prev, [product.id]: { ...prev[product.id], productId: product.id, name: product.name, imageUrl: resolveProductImage(product, field === 'color' ? value : prev[product.id]?.color || '') || null, [field]: value } }))
@@ -268,7 +277,7 @@ function BundleCustomizerModal({ bundle, products, onClose, onDesign }: {
       if (product.sizes?.length && (!selected?.size || !product.sizes.includes(selected.size))) return setError(`Pilih ukuran untuk ${product.name}.`)
       parts.push({ productId: product.id, name: product.name, imageUrl: product.product_type === 'emoney_card' ? selected?.imageUrl || null : resolveProductImage(product,selected?.color) || null, color: selected?.color, size: selected?.size, customization: selected?.customization || null })
     }
-    add({ bundleId: bundle.id, productId: bundle.id, name: bundle.name, qty: 1, unitPrice: Number(bundle.price), imageUrl: bundle.cover_image_url || parts[0]?.imageUrl || null, weightGrams: children.reduce((n,p)=>n+Number(p.weight_grams||0),0), bundleItems: parts })
+    add({ bundleId: bundle.id, productId: bundle.id, name: bundle.name, qty: 1, unitPrice: configuredPrice, imageUrl: bundle.cover_image_url || parts[0]?.imageUrl || null, weightGrams: children.reduce((n,p)=>n+Number(p.weight_grams||0),0), bundleItems: parts })
     onClose()
   }
   return <div className="modal-backdrop" onClick={onClose}><div className="modal-card bundle-modal" onClick={e => e.stopPropagation()}>
@@ -288,7 +297,7 @@ function BundleCustomizerModal({ bundle, products, onClose, onDesign }: {
         </div>
       </div>
     })}</div>
-    <div className="bundle-modal-bottom"><div><small>Harga paket</small><strong>{rupiah(bundle.price)}</strong></div><button className="primary" type="button" onClick={addBundle}><ShoppingCart size={18}/> Tambah paket ke keranjang</button></div>
+    <div className="bundle-modal-bottom"><div><small>Harga paket{sizeExtra > 0 ? ` (termasuk tambahan ukuran ${rupiah(sizeExtra)})` : ''}</small><strong>{rupiah(bundlePromoActive ? Math.round(configuredPrice * (1 - launch!.bundle / 100)) : configuredPrice)}</strong>{bundlePromoActive && <small>Harga sebelum diskon: {rupiah(configuredPrice)} · {launch!.name} −{launch!.bundle}%</small>}</div><button className="primary" type="button" onClick={addBundle}><ShoppingCart size={18}/> Tambah paket ke keranjang</button></div>
   </div></div>
 }
 
@@ -321,7 +330,7 @@ export default function StorePage() {
           <Search size={20}/><input aria-label="Cari merchandise" value={search} onChange={e => setSearch(e.target.value)} placeholder="Mau cari merchandise apa?"/><button type="submit">Cari produk <ArrowRight size={17}/></button>
         </form>
         <div className="hero-offers">
-          {launch?.enabled && (!launch.endAt || new Date(launch.endAt)>new Date()) && <div><strong>15–20%</strong><span>Diskon launching</span></div>}
+          {launch?.enabled && (!launch.endAt || new Date(launch.endAt)>new Date()) && <div><strong>{launch.standard}% / {launch.bundle}%</strong><span>{launch.name}</span></div>}
           <div><strong>+10%</strong><span>Belanja di atas Rp500.000</span></div>
           <div><strong>🎟️</strong><span>Kode promo bisa ditumpuk</span></div>
         </div>
@@ -339,7 +348,7 @@ export default function StorePage() {
       </>}
     </section>
     {emoneyProduct && <EmoneyCustomizerModal product={emoneyProduct} onClose={() => setEmoneyProduct(null)}/>}
-    {selectedBundle && <BundleCustomizerModal key={selectedBundle.id} bundle={selectedBundle} products={products} onClose={() => {setSelectedBundle(null);setBundleDesign(null)}} onDesign={(product,onReady) => setBundleDesign({product,onReady})}/>}
+    {selectedBundle && <BundleCustomizerModal key={selectedBundle.id} bundle={selectedBundle} products={products} launch={launch} onClose={() => {setSelectedBundle(null);setBundleDesign(null)}} onDesign={(product,onReady) => setBundleDesign({product,onReady})}/>}
     {bundleDesign && <EmoneyCustomizerModal key={bundleDesign.product.id} product={bundleDesign.product} onClose={() => setBundleDesign(null)} onConfigured={item => {bundleDesign.onReady(item);setBundleDesign(null)}}/>} 
   </>
 }

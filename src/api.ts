@@ -96,10 +96,10 @@ export const shippingApi = {
   quotes: (payload: { destinationId: string; destinationToken: string; weight: number }) => apiJson<ShippingQuote[]>('/shipping/quotes', 'POST', payload)
 }
 
-export const pricingApi = { preview: (items: CartItem[], promoCode: string) => apiJson<DiscountBreakdown>('/pricing/quote', 'POST', { items: items.map(i => ({ productId: i.productId, bundleId: i.bundleId, qty: i.qty })), promoCode }) }
+export const pricingApi = { preview: (items: CartItem[], promoCode: string) => apiJson<DiscountBreakdown>('/pricing/quote', 'POST', { items: items.map(i => ({ productId: i.productId, bundleId: i.bundleId, qty: i.qty, color: i.color || null, size: i.size || null, bundleItems: i.bundleItems?.map(part => ({ productId: part.productId, color: part.color || null, size: part.size || null })) })), promoCode }) }
 
 export const orderApi = {
-  create: (payload: unknown) => apiJson<{ orderId: string; receiptNo: string; total: number; discounts: DiscountBreakdown; uploadToken: string }>('/orders', 'POST', payload),
+  create: (payload: unknown) => apiJson<{ orderId: string; receiptNo: string; total: number; discounts: DiscountBreakdown; lineItems: Array<{ unitPrice: number; lineTotal: number }>; uploadToken: string }>('/orders', 'POST', payload),
   uploadProof: async (receiptNo: string, file: File, uploadToken: string) => {
     const f = new FormData()
     f.append('file', file)

@@ -31,7 +31,7 @@ export default function CartCheckoutPage() {
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [receipt, setReceipt] = useState<null | { receiptNo: string; total: number; customer: typeof customer; items: typeof cart.items; fulfillment: 'ship' | 'pickup'; destination?: string; shipping?: ShippingQuote | null; pickupName?: string; pickupTime?: string; paymentName?: string; uploadToken?: string; proofUploaded: boolean; discounts?: DiscountBreakdown }>(null)
+  const [receipt, setReceipt] = useState<null | { receiptNo: string; total: number; customer: typeof customer; items: typeof cart.items; fulfillment: 'ship' | 'pickup'; destination?: string; shipping?: ShippingQuote | null; pickupName?: string; pickupTime?: string; paymentName?: string; uploadToken?: string; proofUploaded: boolean; discounts?: DiscountBreakdown; lineItems?: Array<{ unitPrice: number; lineTotal: number }> }>(null)
 
   useEffect(() => {
     Promise.all([catalogApi.pickups(), catalogApi.payments()]).then(([p, m]) => {
@@ -116,7 +116,7 @@ export default function CartCheckoutPage() {
         items: cart.items.map(i => i.bundleId ? ({ bundleId: i.bundleId, qty: 1, bundleItems: i.bundleItems?.map(part => ({ productId: part.productId, color: part.color || null, size: part.size || null, customization: part.customization || null })) }) : ({ productId: i.productId, qty: i.qty, color: i.color || null, size: i.size || null, customization: i.customization || null }))
       })
       const slotLabel = selectedPickup?.slots?.find(s => s.id === pickupSlotId)?.starts_at
-      const baseReceipt = { receiptNo: created.receiptNo, total: created.total, discounts: created.discounts, customer: { ...customer }, items: [...cart.items], fulfillment, destination: destination?.label, shipping: quote, pickupName: selectedPickup?.name, pickupTime: slotLabel, paymentName: selectedPayment?.name, uploadToken: created.uploadToken }
+      const baseReceipt = { receiptNo: created.receiptNo, total: created.total, discounts: created.discounts, customer: { ...customer }, items: [...cart.items], fulfillment, destination: destination?.label, shipping: quote, pickupName: selectedPickup?.name, pickupTime: slotLabel, paymentName: selectedPayment?.name, uploadToken: created.uploadToken, lineItems: created.lineItems }
       try {
         if (proof) await orderApi.uploadProof(created.receiptNo, proof, created.uploadToken)
         setReceipt({ ...baseReceipt, proofUploaded: true, uploadToken: undefined })
@@ -146,8 +146,8 @@ export default function CartCheckoutPage() {
     <div className="receipt-detail panel">
       <div className="receipt-section"><b>Customer</b><p>{receipt.customer.fullName}<br/>{receipt.customer.email}<br/>{receipt.customer.phone}</p></div>
       <div className="receipt-section"><b>Penerimaan</b><p>{receipt.fulfillment === 'ship' ? <>Dikirim ke {receipt.destination}<br/>{receipt.customer.address}{receipt.shipping ? <><br/>{receipt.shipping.courier.toUpperCase()} · {receipt.shipping.service}</> : null}</> : <>Ambil di {receipt.pickupName}{receipt.pickupTime ? <><br/>{dt(receipt.pickupTime)}</> : null}</>}</p></div>
-      <div className="receipt-section span-all"><b>Item</b>{receipt.items.map((i, idx) => <div className="receipt-item" key={idx}><span>{i.qty}× {i.name}{i.color ? ` · ${i.color}` : ''}{i.size ? ` · ${i.size}` : ''}{i.customization?.type === 'emoney_card' ? ` · Template ${i.customization.templateLabel}` : ''}</span><strong>{rupiah(i.unitPrice * i.qty)}</strong></div>)}</div>
-      {receipt.discounts && <div className="receipt-section"><b>Diskon</b><p>Launching: −{rupiah(receipt.discounts.launchDiscount)}<br/>Belanja besar: −{rupiah(receipt.discounts.volumeDiscount)}<br/>{receipt.discounts.promoCode ? `${receipt.discounts.promoCode}: −${rupiah(receipt.discounts.promoDiscount)}` : 'Tanpa kode promo'}</p></div>}
+      <div className="receipt-section span-all"><b>Item</b>{receipt.items.map((i, idx) => <div className="receipt-item" key={idx}><span>{i.qty}× {i.name}{i.color ? ` · ${i.color}` : ''}{i.size ? ` · ${i.size}` : ''}{i.customization?.type === 'emoney_card' ? ` · Template ${i.customization.templateLabel}` : ''}</span><strong>{rupiah(receipt.lineItems?.[idx]?.lineTotal ?? i.unitPrice * i.qty)}</strong></div>)}</div>
+      {receipt.discounts && <div className="receipt-section"><b>Diskon</b><p>{receipt.discounts.launchName || 'Diskon launching'}: −{rupiah(receipt.discounts.launchDiscount)}<br/>Belanja besar: −{rupiah(receipt.discounts.volumeDiscount)}<br/>{receipt.discounts.promoCode ? `${receipt.discounts.promoCode}: −${rupiah(receipt.discounts.promoDiscount)}` : 'Tanpa kode promo'}</p></div>}
       <div className="receipt-section"><b>Pembayaran</b><p>{receipt.paymentName || '-'}</p></div>
       <div className="receipt-total"><span>Total pembayaran</span><strong>{rupiah(receipt.total)}</strong></div>
     </div>
@@ -204,11 +204,11 @@ export default function CartCheckoutPage() {
       </div>
 
       <aside className="panel order-summary">
-        <div className="promo-checkout-panel"><h3>🎟️ Punya kode promo?</h3><div className="promo-input-row"><input aria-label="Kode promo" value={promoInput} onChange={e=>setPromoInput(e.target.value.toUpperCase())} placeholder="Masukkan kode promo" maxLength={40}/><button type="button" className="secondary" onClick={applyPromo} disabled={pricingLoading||!cart.items.length}>Terapkan</button></div>{appliedCode && <p className="promo-applied">✓ Kode {appliedCode} diterapkan <button className="mini" onClick={()=>{setAppliedCode('');setPromoInput('')}}>Hapus</button></p>}{promoError && <p className="promo-error" role="alert">{promoError}</p>}<small>Diskon launching, diskon 10% transaksi di atas Rp500.000, dan kode promo dapat ditumpuk.</small></div>
+        <div className="promo-checkout-panel"><h3>🎟️ Punya kode promo?</h3><div className="promo-input-row"><input aria-label="Kode promo" value={promoInput} onChange={e=>setPromoInput(e.target.value.toUpperCase())} placeholder="Masukkan kode promo" maxLength={40}/><button type="button" className="secondary" onClick={applyPromo} disabled={pricingLoading||!cart.items.length}>Terapkan</button></div>{appliedCode && <p className="promo-applied">✓ Kode {appliedCode} diterapkan <button className="mini" onClick={()=>{setAppliedCode('');setPromoInput('')}}>Hapus</button></p>}{promoError && <p className="promo-error" role="alert">{promoError}</p>}<small>{pricing?.launchName || 'Diskon launching'}, diskon 10% transaksi di atas Rp500.000, dan kode promo dapat ditumpuk.</small></div>
         <h2>Ringkasan order</h2>
-        {cart.items.map((item, idx) => <div className="summary-line" key={idx}><span>{item.qty}× {item.name}</span><strong>{rupiah(item.unitPrice * item.qty)}</strong></div>)}
+        {cart.items.map((item, idx) => <div className="summary-line" key={idx}><span>{item.qty}× {item.name}{(pricing?.lineItems?.[idx]?.surcharge || 0) > 0 && <small className="size-surcharge-hint">Termasuk tambahan ukuran XXL+: {rupiah(pricing!.lineItems![idx].surcharge || 0)}</small>}</span><strong>{rupiah(pricing?.lineItems?.[idx]?.lineTotal ?? item.unitPrice * item.qty)}</strong></div>)}
         <div className="summary-line"><span>Subtotal merchandise</span><strong>{rupiah(pricing?.originalSubtotal ?? cart.subtotal)}</strong></div>
-        <div className="summary-line discount-line"><span>Diskon launching</span><strong>−{rupiah(pricing?.launchDiscount || 0)}</strong></div>
+        <div className="summary-line discount-line"><span>{pricing?.launchName || 'Diskon launching'}</span><strong>−{rupiah(pricing?.launchDiscount || 0)}</strong></div>
         <div className="summary-line discount-line"><span>Diskon belanja &gt; Rp500.000 (10%)</span><strong>−{rupiah(pricing?.volumeDiscount || 0)}</strong></div>
         {pricing?.promoCode && <div className="summary-line discount-line"><span>Promo {pricing.promoCode}</span><strong>−{rupiah(pricing.promoDiscount)}</strong></div>}
         <div className="summary-line"><span>Setelah diskon</span><strong>{pricingLoading ? 'Menghitung…' : rupiah(pricing?.payableSubtotal ?? cart.subtotal)}</strong></div>

@@ -1,3 +1,11 @@
+## Pembaruan 17 Oktober 2026 — Nama promo dan harga ukuran XXL+
+
+- Dashboard **Promo & diskon** sekarang menyediakan kolom **Nama promo yang tampil ke pembeli**, tanpa mengubah persentase diskon produk (15–20%), paket (15–20%), diskon tetap 10% di atas Rp500.000, atau kode promo. Default tetap **Diskon launching**. Nama baru otomatis muncul di katalog, checkout dan tanda terima pesanan.
+- Untuk pakaian dengan varian **XXL / 2XL / XXXL / 3XL / 4XL dst**, harga dasar naik **Rp15.000 per item** sebelum diskon. Berlaku juga bagi pakaian yang dipilih sebagai bagian dari paket; beberapa item XXL masing-masing dikenai tambahan Rp15.000.
+- API menghitung ulang harga dari katalog Supabase, termasuk ukuran varian. Tarif di keranjang lama tidak dipercaya saat melakukan estimasi maupun pesanan.
+- **Tidak ada migrasi wajib untuk update ini.** Setting nama baru otomatis tersimpan pada `app_settings.launch_name`. SQL opsional `supabase/migrations/010_promo_display_name.sql` hanya untuk mengisi default secara eksplisit.
+- Setelah mengganti kode di GitHub, deploy ulang Cloudflare dan uji `npm run test:promos && npm run test:oversize`. Rincian ada di **`PANDUAN_UPDATE_PROMO_UKURAN_XXL.md`**.
+
 
 ## Pembaruan cek ongkir: fallback 3 provider (13 Oktober 2026)
 

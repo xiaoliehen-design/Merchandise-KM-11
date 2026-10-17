@@ -273,3 +273,12 @@ body{background:#f6f9ff}
 .size-chart-edit-controls .size-chart-remove{background:#fff1f2;border-color:#fbd0d4;color:#b12c40;font-size:12px;min-height:35px}
 .bundle-config-variants>.product-size-field{flex:1;min-width:145px}
 @media(max-width:560px){.size-chart-edit-body{flex-direction:column}.size-chart-edit-preview{width:100%;max-height:230px}.size-chart-modal{padding:16px}.size-chart-modal-image img{max-height:65vh}}
+
+/* Tarif pakaian XXL ke atas: informasi tetap terbaca di katalog dan modal paket. */
+.size-surcharge-hint {
+  display: block;
+  font-size: .8rem;
+  line-height: 1.5;
+  color: #1554a0;
+  margin-top: .35rem;
+}
