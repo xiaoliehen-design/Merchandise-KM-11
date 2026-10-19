@@ -5,6 +5,7 @@ import { adminApi } from './api'
 import { readableApiError } from './apiError'
 import { resolveProductImage } from './colorImages'
 import type { Order, PaymentMethod, PickupLocation, Product, ProductBundle, LaunchSettings, PromoCode, AuditLog } from './types'
+import { itemUnitDiscount } from '../shared/productDiscount'
 import { dt, rupiah, slugify, statusLabel } from './utils'
 import { itemVariantText, orderExportData, orderFulfillment, shippingAddressDetails, sortedOrderItems } from './orderAdminData'
 
@@ -549,7 +550,7 @@ function ProductsAdmin() {
 
   const filtered = items.filter(product => `${product.name} ${product.slug} ${product.colors?.join(' ')} ${product.sizes?.join(' ')}`.toLocaleLowerCase('id-ID').includes(search.toLocaleLowerCase('id-ID')))
   return <>
-    <AdminHeader title="Produk" actions={<div className="bundle-admin-actions"><button className="secondary" onClick={() => { setNewBundleRequest(n => n + 1); setShowBundleEditor(true); setEdit(null) }}><Plus size={17}/> Tambah paket</button><button className="primary" onClick={() => { setShowBundleEditor(false); startEditing({ name: '', slug: '', description: '', base_price: 0, weight_grams: 50, colors: [], sizes: [], active: true, featured: false, specifications: {}, product_type: 'standard' }) }}><Plus size={17}/> Tambah produk</button></div>}/>
+    <AdminHeader title="Produk" actions={<div className="bundle-admin-actions"><button className="secondary" onClick={() => { setNewBundleRequest(n => n + 1); setShowBundleEditor(true); setEdit(null) }}><Plus size={17}/> Tambah paket</button><button className="primary" onClick={() => { setShowBundleEditor(false); startEditing({ name: '', slug: '', description: '', base_price: 0, item_discount_enabled: false, item_discount_type: 'percent', item_discount_amount: 0, weight_grams: 50, colors: [], sizes: [], active: true, featured: false, specifications: {}, product_type: 'standard' }) }}><Plus size={17}/> Tambah produk</button></div>}/>
     <BundlesAdmin products={items} showEditor={showBundleEditor} setShowEditor={setShowBundleEditor} newRequest={newBundleRequest}/>
     {error && <div className="alert error" role="alert">{error}</div>}
     <div className="product-upload-diagnostic">
@@ -572,6 +573,15 @@ function ProductsAdmin() {
           <label>Harga (Rp)<input type="number" min="0" value={edit.base_price ?? 0} onChange={e => setEdit({ ...edit, base_price: Number(e.target.value) })}/></label>
           <label>Berat (gram)<input type="number" min="0" value={edit.weight_grams ?? 0} onChange={e => setEdit({ ...edit, weight_grams: Number(e.target.value) })}/></label>
         </div>
+      </div>
+      <div className="item-discount-editor">
+        <div className="item-discount-heading"><div><h3>Diskon khusus produk</h3><p className="muted">Berlaku hanya untuk produk ini saat dibeli satuan, termasuk varian XXL+. Menggantikan diskon promo otomatis produk biasa (tidak dijumlahkan dua kali). Tidak berlaku untuk item di dalam paket.</p></div></div>
+        <label className="promo-enabled"><input type="checkbox" checked={!!edit.item_discount_enabled} onChange={e => setEdit({ ...edit, item_discount_enabled: e.target.checked, item_discount_type: edit.item_discount_type || 'percent', item_discount_amount: e.target.checked && !edit.item_discount_amount ? 10 : edit.item_discount_amount ?? 0 })}/> Aktifkan diskon khusus untuk produk ini</label>
+        {edit.item_discount_enabled && <div className="form-grid two">
+          <label>Jenis diskon<select value={edit.item_discount_type || 'percent'} onChange={e => setEdit({ ...edit, item_discount_type: e.target.value as Product['item_discount_type'], item_discount_amount: e.target.value === 'percent' && Number(edit.item_discount_amount) > 100 ? 10 : edit.item_discount_amount ?? 10 })}><option value="percent">Persentase (%)</option><option value="fixed">Nominal per unit (Rp)</option></select></label>
+          <label>Besaran diskon<input type="number" min={1} max={edit.item_discount_type === 'fixed' ? 999999999999 : 100} step={1} value={edit.item_discount_amount ?? 10} onChange={e => setEdit({ ...edit, item_discount_amount: Number(e.target.value) })}/></label>
+          <div className="item-discount-preview span-2"><span>Contoh harga (sebelum tambahan XXL)</span><strong>{rupiah(Math.max(0, Number(edit.base_price || 0) - itemUnitDiscount(edit, Number(edit.base_price || 0))))}</strong><small>Harga dasar {rupiah(Number(edit.base_price || 0))}. Diskon dihitung dari harga dengan tambahan ukuran jika pembeli memilih XXL+.</small></div>
+        </div>}
       </div>
       {edit.product_type !== 'emoney_card' && <div className="product-editor-section">
         <h3>Varian produk</h3>
@@ -636,7 +646,7 @@ function ProductsAdmin() {
       <div className="admin-product-info">
         <div className="admin-product-flags"><span className={`admin-product-status ${product.active ? 'is-active' : 'is-inactive'}`}>{product.active ? 'Aktif' : 'Nonaktif'}</span><span className="admin-product-type">{product.product_type === 'emoney_card' ? 'E-money custom' : 'Merchandise'}</span></div>
         <h3 title={product.name}>{product.name}</h3>
-        <strong className="admin-product-price">{rupiah(product.base_price)}</strong>
+        <strong className="admin-product-price">{rupiah(product.base_price)}</strong>{product.item_discount_enabled && <span className="admin-item-discount-label">Diskon khusus: {product.item_discount_type === 'fixed' ? rupiah(product.item_discount_amount) : `${product.item_discount_amount}%`}</span>}
         <div className="admin-product-weight">{product.weight_grams} gram</div>
         {product.product_type !== 'emoney_card' && <div className="admin-product-variants">
           <div><b>Warna</b><span>{product.colors?.length ? product.colors.join(', ') : '—'}{product.colors?.length ? ` · ${product.colors.filter(color => !!product.color_images?.[color]).length}/${product.colors.length} foto` : ''}</span></div>

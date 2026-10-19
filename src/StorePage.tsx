@@ -8,6 +8,7 @@ import { EMONEY_BACK_URL, EMONEY_TEMPLATES, defaultEmoneyCustomization, drawEmon
 import type { Product, ProductBundle, CartItem, BundleCartComponent, LaunchSettings } from './types'
 import { rupiah } from './utils'
 import { isClothing, sizeSurcharge, OVERSIZE_SURCHARGE_RP } from '../shared/sizePricing'
+import { itemUnitDiscount, itemDiscountLabel } from '../shared/productDiscount'
 
 function SizeChartModal({ product, onClose }: { product: Product; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null)
@@ -67,7 +68,9 @@ function ProductCard({ p, onOpenCustomizer, launch }: { p: Product; onOpenCustom
 
   const isEmoney = p.product_type === 'emoney_card'
   const adjustedPrice = p.base_price + sizeSurcharge(p, size)
-  const promoActive = !!launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date())
+  const promoActive = !p.item_discount_enabled && !!launch?.enabled && (!launch.endAt || new Date(launch.endAt) > new Date())
+  const specialDiscount = itemUnitDiscount(p, adjustedPrice)
+  const finalDisplayedPrice = specialDiscount > 0 ? adjustedPrice - specialDiscount : promoActive ? adjustedPrice - Math.round(adjustedPrice * launch!.standard / 100) : adjustedPrice
   const selectedImageUrl = isEmoney ? '/emoney/front-templates.png' : resolveProductImage(p, color)
   const productDescription = isEmoney
     ? 'Katalog kartu e-money custom. Customer dapat memilih 1 dari 4 template, upload foto, mengatur posisi foto/nama, menyetujui preview, lalu hasil PNG final akan tersimpan untuk admin cetak.'
@@ -88,7 +91,7 @@ function ProductCard({ p, onOpenCustomizer, launch }: { p: Product; onOpenCustom
         <p>{productDescription}</p>
         {Object.keys(productSpecs).length > 0 && <dl className="product-specs">{Object.entries(productSpecs).map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>}
       </div>
-      <div className="price-area">{promoActive && <><span className="price-old">{rupiah(adjustedPrice)}</span><span className="discount-pill">-{launch!.standard}%</span></>}<strong className="price">{rupiah(promoActive ? Math.round(adjustedPrice * (1-launch!.standard/100)) : adjustedPrice)}</strong></div>
+      <div className="price-area">{(specialDiscount > 0 || promoActive) && <><span className="price-old">{rupiah(adjustedPrice)}</span><span className="discount-pill">{specialDiscount > 0 ? itemDiscountLabel(p) : `-${launch!.standard}%`}</span></>}<strong className="price">{rupiah(finalDisplayedPrice)}</strong></div>
       {!isEmoney && !!p.colors?.length && <label>Warna<select value={color} onChange={e => { setColor(e.target.value); setAdded(false) }}>{p.colors.map(v => <option key={v}>{v}</option>)}</select></label>}
       {!isEmoney && <ProductSizeField product={p} value={size} onChange={v => { setSize(v); setAdded(false) }}/>}
       <div className="qty-row"><span>Jumlah</span><div className="qty-control"><button onClick={() => setQty(Math.max(1, qty - 1))}><Minus size={16}/></button><b>{qty}</b><button onClick={() => setQty(qty + 1)}><Plus size={16}/></button></div></div>

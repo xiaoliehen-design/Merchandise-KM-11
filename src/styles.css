@@ -282,3 +282,16 @@ body{background:#f6f9ff}
   color: #1554a0;
   margin-top: .35rem;
 }
+
+/* Diskon individual: bagian tersendiri pada form Edit Produk. */
+.item-discount-editor{border-top:1px solid #d8e5fa;padding:24px 30px;background:#f7faff}
+.item-discount-editor h3{margin:0 0 8px;color:#112c61}
+.item-discount-editor .item-discount-heading p{margin:0 0 18px;max-width:900px}
+.item-discount-editor .promo-enabled{display:flex;align-items:center;gap:10px;font-weight:700;margin-bottom:16px}
+.item-discount-editor .promo-enabled input{width:18px;height:18px;flex-shrink:0}
+.item-discount-editor .form-grid{margin-top:8px}
+.item-discount-preview{border-radius:12px;border:1px dashed #9dbcf2;padding:14px 16px;background:white;display:flex;flex-direction:column;gap:6px}
+.item-discount-preview strong{color:#0754cf;font-size:1.3rem}
+.item-discount-preview small{font-size:.85rem;color:#60718d}
+.admin-item-discount-label{display:inline-flex;align-self:flex-start;border-radius:999px;padding:4px 10px;background:#e9f4ec;color:#17613b;font-weight:700;font-size:.8rem}
+@media(max-width:700px){.item-discount-editor{padding:18px}}

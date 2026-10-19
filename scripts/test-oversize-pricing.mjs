@@ -11,6 +11,7 @@ async function loadSource(file) {
 }
 const { sizeSurcharge, isOversize } = await loadSource('../shared/sizePricing.ts')
 const { computeDiscounts } = await loadSource('../worker/promotions.ts')
+const { itemUnitDiscount } = await loadSource('../shared/productDiscount.ts')
 const clothing = { id: '1', name: 'Kaos KM11', sizes: ['S', 'M', 'L', 'XL', 'XXL', '3XL'], colors: [], base_price: 100000 }
 const clothing2 = { id: '2', name: 'Hoodie KM11', sizes: ['M', 'XL', '2XL', 'XXXL'], colors: [], base_price: 80000 }
 const cup = { id: '3', name: 'Mug KM11', sizes: [], colors: [], base_price: 40000 }
@@ -44,7 +45,7 @@ const isUuid = v => ['1', '2', '3', '4', 'b'].includes(String(v))
 const cleanText = (v, max=500) => String(v ?? '').trim().slice(0, max)
 const discountSettings = async () => settings
 const computeOffer = async (_env, subtotal, launchBase) => ({ ...computeDiscounts(subtotal, launchBase, null, settings), launchName: settings.name })
-new Function('app', 'service', 'discountSettings', 'computeOffer', 'isUuid', 'sizeSurcharge', 'cleanText', transpiledQuote)(fakeApp, () => fakeSupabase, discountSettings, computeOffer, isUuid, sizeSurcharge, cleanText)
+new Function('app', 'service', 'discountSettings', 'computeOffer', 'isUuid', 'sizeSurcharge', 'itemUnitDiscount', 'cleanText', transpiledQuote)(fakeApp, () => fakeSupabase, discountSettings, computeOffer, isUuid, sizeSurcharge, itemUnitDiscount, cleanText)
 assert.equal(typeof quoteHandler, 'function')
 const quote = items => quoteHandler({ req: { json: async () => ({ items, promoCode: '' }) }, env: {}, json: response => response })
 const single = await quote([{ productId: '1', qty: 2, size: 'XXL' }])
