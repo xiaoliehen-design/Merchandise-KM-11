@@ -5,6 +5,7 @@ import { findDestinations, getShippingQuotes, verifyDestination, type ShippingPr
 import { get17, register17 } from './tracking17'
 import { computeDiscounts, type DiscountSettings } from './promotions'
 import { sizeSurcharge } from '../shared/sizePricing'
+import { itemUnitDiscount } from '../shared/productDiscount'
 
 type Bindings = {
   APP_NAME: string
@@ -32,7 +33,7 @@ function anon(env: Bindings): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })
 }
 const REQUIRED_BINDINGS = ['SUPABASE_URL', 'SUPABASE_ANON_KEY', 'SUPABASE_SERVICE_ROLE_KEY', 'CART_SECRET'] as const
-const WORKER_REVISION = 'merchic-editable-promo-oversize-v1'
+const WORKER_REVISION = 'merchic-item-discounts-v2'
 
 // Report names only; environment values and secrets must never be returned to visitors.
 function missingBindings(env: Bindings | undefined): string[] {
@@ -167,7 +168,7 @@ async function discountSettings(env: Bindings): Promise<DiscountSettings> {
   const settings = await getSettings(env)
   return { name: settings.launch_name?.trim() || 'Diskon launching', enabled: settings.launch_enabled !== 'false', standard: Number(settings.launch_standard_percent ?? '15'), bundle: Number(settings.launch_bundle_percent ?? '20'), endAt: settings.launch_end_at || null }
 }
-async function computeOffer(env: Bindings, originalSubtotal: number, launchBase: number, code: unknown) {
+async function computeOffer(env: Bindings, originalSubtotal: number, launchBase: number, code: unknown, itemDiscount = 0) {
   const sb = service(env)
   const promoCode = cleanText(code, 40).toUpperCase()
   let promo: any = null
@@ -179,7 +180,7 @@ async function computeOffer(env: Bindings, originalSubtotal: number, launchBase:
     promo = result.data
   }
   const settings = await discountSettings(env)
-  return { ...computeDiscounts(originalSubtotal, launchBase, promo, settings), launchName: settings.name }
+  return { ...computeDiscounts(originalSubtotal, launchBase, promo, settings, new Date(), itemDiscount), launchName: settings.name }
 }
 app.get('/api/promotions/launch', async c => c.json(await discountSettings(c.env)))
 app.get('/api/storefront/contact', async c => {
@@ -208,11 +209,11 @@ app.post('/api/pricing/quote', async c => {
     ? (byBundle.get(String(item.bundleId))?.product_ids || [])
     : [String(item.productId)]))]
   if (!productIds.length || productIds.length > 100 || productIds.some(id => !isUuid(id))) return c.json({ error: 'Produk tidak valid.' }, 400)
-  const { data: products, error: e2 } = await sb.from('products').select('id,name,base_price,colors,sizes,product_type').in('id', productIds).eq('active', true)
+  const { data: products, error: e2 } = await sb.from('products').select('id,name,base_price,colors,sizes,product_type,item_discount_enabled,item_discount_type,item_discount_amount').in('id', productIds).eq('active', true)
   if (e2) throw e2
   if ((products || []).length !== productIds.length) return c.json({ error: 'Produk atau isi paket tidak tersedia. Segarkan katalog.' }, 409)
   const byId = new Map<string, any>((products || []).map((p: any) => [p.id, p]))
-  let base = 0, launchBase = 0
+  let base = 0, launchBase = 0, itemDiscount = 0
   const lineItems: Array<{ unitPrice: number; lineTotal: number; surcharge: number }> = []
   const settings = await discountSettings(c.env)
   for (const item of items) {
@@ -232,18 +233,20 @@ app.post('/api/pricing/quote', async c => {
       const price = Number(bundle.price) + surcharge
       base += price
       launchBase += Math.round(price * settings.bundle / 100)
-      lineItems.push({ unitPrice: price, lineTotal: price, surcharge })
+      lineItems.push({ unitPrice: price, lineTotal: price, surcharge, itemDiscount: 0 })
     } else {
       const product = byId.get(String(item.productId))!
       validateVariant(product, item)
       const surcharge = sizeSurcharge(product, item.size)
       const price = Number(product.base_price) + surcharge
       base += price * quantity
-      launchBase += Math.round(price * quantity * settings.standard / 100)
-      lineItems.push({ unitPrice: price, lineTotal: price * quantity, surcharge: surcharge * quantity })
+      const special = itemUnitDiscount(product, price) * quantity
+      itemDiscount += special
+      if (!product.item_discount_enabled) launchBase += Math.round(price * quantity * settings.standard / 100)
+      lineItems.push({ unitPrice: price, lineTotal: price * quantity, surcharge: surcharge * quantity, itemDiscount: special })
     }
   }
-  return c.json({ ...await computeOffer(c.env, base, launchBase, b.promoCode), lineItems })
+  return c.json({ ...await computeOffer(c.env, base, launchBase, b.promoCode, itemDiscount), lineItems })
 })
 
 function validateVariant(product: any, item: any) {
@@ -281,7 +284,7 @@ app.post('/api/orders', async c => {
   if (prodErr) throw prodErr
   if ((products || []).length !== ids.length) return c.json({ error: 'Ada produk di dalam paket yang sudah tidak tersedia.' }, 409)
   const byId = new Map((products || []).map((p: any) => [p.id, p]))
-  let subtotal = 0, weight = 0, launchBase = 0
+  let subtotal = 0, weight = 0, launchBase = 0, itemDiscount = 0
   const offerSettings = await discountSettings(c.env)
 
   function prepareOne(p: any, i: any, unitPrice: number, group?: { id: string; name: string; index: number; total: number }) {
@@ -329,7 +332,8 @@ app.post('/api/orders', async c => {
       const prepared = prepareOne(p, item, Number(p?.base_price || 0))
       preparedItems.push(prepared)
       receiptLines.push({ unitPrice: prepared.row.unit_price, lineTotal: prepared.row.line_total })
-      launchBase += Math.round(prepared.row.line_total * offerSettings.standard / 100)
+      itemDiscount += itemUnitDiscount(p, prepared.row.unit_price) * prepared.row.quantity
+      if (!p.item_discount_enabled) launchBase += Math.round(prepared.row.line_total * offerSettings.standard / 100)
       continue
     }
     const bundle = byBundle.get(String(item.bundleId))
@@ -383,11 +387,11 @@ app.post('/api/orders', async c => {
   if (!isUuid(paymentMethodId)) return c.json({ error: 'Metode pembayaran tidak valid.' }, 400)
   const { data: pay } = await sb.from('payment_methods').select('id,name,active').eq('id', paymentMethodId).eq('active', true).maybeSingle()
   if (!pay) return c.json({ error: 'Metode pembayaran tidak tersedia.' }, 409)
-  const discounts = await computeOffer(c.env, subtotal, launchBase, b.promoCode)
+  const discounts = await computeOffer(c.env, subtotal, launchBase, b.promoCode, itemDiscount)
   const total = discounts.payableSubtotal + shippingCost
   const paymentUploadToken = `${crypto.randomUUID()}${crypto.randomUUID()}`.replace(/-/g, '')
   const paymentUploadTokenHash = await sha256(`${c.env.CART_SECRET}|payment|${paymentUploadToken}`)
-  const { data: created, error: createErr } = await sb.rpc('create_order_atomic', { p_order: { full_name: fullName, email, phone, address: fulfillmentType === 'ship' ? address : null, fulfillment_type: fulfillmentType, pickup_location_id: pickupLocationId, pickup_slot_id: pickupSlotId, shipping_destination_id: destinationId, shipping_destination_label: destinationLabel, shipping_courier: shippingCourier, shipping_service: shippingService, shipping_cost: shippingCost, subtotal, launch_discount: discounts.launchDiscount, volume_discount: discounts.volumeDiscount, promo_discount: discounts.promoDiscount, promo_code: discounts.promoCode, total, payment_method_id: pay.id, payment_method_name: pay.name, payment_upload_token_hash: paymentUploadTokenHash }, p_items: itemRows })
+  const { data: created, error: createErr } = await sb.rpc('create_order_atomic', { p_order: { full_name: fullName, email, phone, address: fulfillmentType === 'ship' ? address : null, fulfillment_type: fulfillmentType, pickup_location_id: pickupLocationId, pickup_slot_id: pickupSlotId, shipping_destination_id: destinationId, shipping_destination_label: destinationLabel, shipping_courier: shippingCourier, shipping_service: shippingService, shipping_cost: shippingCost, subtotal, launch_discount: discounts.launchDiscount, item_discount: discounts.itemDiscount, volume_discount: discounts.volumeDiscount, promo_discount: discounts.promoDiscount, promo_code: discounts.promoCode, total, payment_method_id: pay.id, payment_method_name: pay.name, payment_upload_token_hash: paymentUploadTokenHash }, p_items: itemRows })
   if (createErr) throw createErr
   const row = Array.isArray(created) ? created[0] : created
   if (preparedItems.some(x => x.customization)) {
@@ -719,11 +723,24 @@ function productPayload(b: any) {
   const price = Number(b.base_price), weight = Number(b.weight_grams)
   if (!Number.isFinite(price) || price < 0 || !Number.isFinite(weight) || weight <= 0) throw new Error('Harga/berat produk tidak valid.')
   const productType = b.product_type === 'emoney_card' ? 'emoney_card' : 'standard'
+  const itemDiscountEnabled = b.item_discount_enabled === true
+  if (b.item_discount_type != null && b.item_discount_type !== 'percent' && b.item_discount_type !== 'fixed') throw new Error('Jenis diskon khusus produk tidak valid.')
+  const itemDiscountType = b.item_discount_type === 'fixed' ? 'fixed' : 'percent'
+  const itemDiscountAmount = Number(b.item_discount_amount ?? 0)
+  if (!Number.isFinite(itemDiscountAmount) || !Number.isInteger(itemDiscountAmount) || itemDiscountAmount < 0 ||
+    (itemDiscountType === 'percent' && itemDiscountAmount > 100) ||
+    (itemDiscountType === 'fixed' && itemDiscountAmount > 999999999999) ||
+    (itemDiscountEnabled && itemDiscountAmount <= 0)) {
+    throw new Error('Diskon produk tidak valid. Isi 1–100% atau nominal rupiah positif.')
+  }
   return {
     name,
     slug: cleanText(b.slug, 180) || name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
     description: cleanText(b.description, 2000) || null,
     base_price: price,
+    item_discount_enabled: itemDiscountEnabled,
+    item_discount_type: itemDiscountType,
+    item_discount_amount: itemDiscountAmount,
     weight_grams: Math.ceil(weight),
     colors: productType === 'emoney_card' ? [] : (Array.isArray(b.colors) ? b.colors.map((v: any) => cleanText(v, 60)).filter(Boolean).slice(0, 50) : []),
     sizes: productType === 'emoney_card' ? [] : (Array.isArray(b.sizes) ? b.sizes.map((v: any) => cleanText(v, 40)).filter(Boolean).slice(0, 50) : []),

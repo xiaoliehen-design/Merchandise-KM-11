@@ -1,3 +1,10 @@
+## Pembaruan 19 Oktober 2026 — Diskon individual per produk
+
+- **Dashboard Admin → Produk → Edit → Diskon khusus produk**: atur persen (%) atau nominal (Rp) per unit, dengan sakelar aktif/nonaktif. Diskon khusus berlaku pada pembelian satuan produk ini, **menggantikan** diskon launching reguler untuk item yang bersangkutan (bukan ditumpuk dengan launching). Pada isi paket, diskon khusus item tidak berlaku; paket memakai potongan paket yang ada.
+- Harga ditentukan berdasarkan harga dasar + Rp15.000 jika memilih ukuran XXL+, baru diskon khusus dihitung. Diskon belanja besar 10% (subtotal >Rp500.000 sebelum diskon) dan kode promo masih bisa diterapkan setelahnya.
+- **WAJIB SEBELUM DEPLOY:** jalankan `supabase/migrations/011_individual_product_discounts.sql` pada Supabase SQL Editor. Kolom baru ditambah dengan default nonaktif, transaksi historis aman.
+- Jalankan `npm run test:item-discounts` dan uji pembelian melalui checkout, baca lengkap `PANDUAN_DISKON_ITEM_INDIVIDUAL.md`.
+
 ## Pembaruan 17 Oktober 2026 — Nama promo dan harga ukuran XXL+
 
 - Dashboard **Promo & diskon** sekarang menyediakan kolom **Nama promo yang tampil ke pembeli**, tanpa mengubah persentase diskon produk (15–20%), paket (15–20%), diskon tetap 10% di atas Rp500.000, atau kode promo. Default tetap **Diskon launching**. Nama baru otomatis muncul di katalog, checkout dan tanda terima pesanan.
