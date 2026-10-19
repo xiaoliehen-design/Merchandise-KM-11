@@ -214,7 +214,7 @@ app.post('/api/pricing/quote', async c => {
   if ((products || []).length !== productIds.length) return c.json({ error: 'Produk atau isi paket tidak tersedia. Segarkan katalog.' }, 409)
   const byId = new Map<string, any>((products || []).map((p: any) => [p.id, p]))
   let base = 0, launchBase = 0, itemDiscount = 0
-  const lineItems: Array<{ unitPrice: number; lineTotal: number; surcharge: number }> = []
+  const lineItems: Array<{ unitPrice: number; lineTotal: number; surcharge: number; itemDiscount: number }> = []
   const settings = await discountSettings(c.env)
   for (const item of items) {
     const quantity = Number(item.qty)
