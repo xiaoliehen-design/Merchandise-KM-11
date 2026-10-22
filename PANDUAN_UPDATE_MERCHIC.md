@@ -12,7 +12,7 @@
 
 ## Aturan diskon dan contoh
 
-- **Launching**: default diskon **15%** produk satuan, **20%** paket. Admin boleh mengatur tingkat masing-masing antara 15% sampai 20%, menonaktifkan, atau menetapkan waktu akhir. Tanpa waktu akhir, diskon launching terus aktif sampai admin menonaktifkannya.
+- **Launching**: default diskon **15%** produk satuan, **20%** paket. Admin bebas mengatur masing-masing antara 0% sampai 100%, termasuk persentase pecahan hingga dua angka desimal (contohnya 12,5%). Nilai 0% menonaktifkan potongan kategori tersebut. Admin dapat menonaktifkan promo launching atau menetapkan waktu akhir. Tanpa waktu akhir, diskon launching terus aktif sampai admin menonaktifkannya.
 - **Diskon tambahan permanen**: **10%** ketika subtotal harga merchandise *sebelum diskon* **lebih besar dari Rp500.000**, bukan sama dengan Rp500.000. Diskon ini dihitung setelah launching, tidak termasuk ongkir, dan tetap berlaku walaupun promo launching dimatikan.
 - **Kode promo**: satu kode per pesanan, boleh berlaku bersamaan dengan kedua diskon otomatis di atas. Kode dapat berupa **persentase** atau **potongan nominal**, dengan tanggal mulai/akhir (opsional), nilai minimal transaksi merchandise sebelum diskon, dan sakelar status aktif.
 - **Urutan**: harga merchandise asli → diskon launching → diskon permanen 10% (jika lolos ambang) → kode promo → ongkir. Nilai diskon tidak bisa membuat harga merchandise negatif. Seluruh nilai rupiah dibulatkan ke rupiah terdekat.
