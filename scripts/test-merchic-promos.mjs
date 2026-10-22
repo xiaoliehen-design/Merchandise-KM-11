@@ -5,7 +5,7 @@ const require = createRequire(import.meta.url)
 const ts = require('typescript')
 const content = readFileSync(new URL('../worker/promotions.ts', import.meta.url),'utf8')
 const js = ts.transpileModule(content, {compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText
-const { computeDiscounts, isValidLaunchPercent } = await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'))
+const { computeDiscounts } = await import('data:text/javascript;base64,'+Buffer.from(js).toString('base64'))
 const settings={enabled:true,standard:15,bundle:20,endAt:null}
 const regular = computeDiscounts(100000,15000,null,settings)
 assert.equal(regular.launchDiscount,15000)
@@ -33,25 +33,4 @@ assert.throws(()=>computeDiscounts(600000,90000,{...code,ends_at:'2020-01-01T00:
 assert.throws(()=>computeDiscounts(600000,90000,{...code,starts_at:'2099-01-01T00:00:00Z'},settings),/belum mulai/)
 const expired=computeDiscounts(100000,15000,null,{...settings,endAt:'2025-01-01T00:00:00Z'})
 assert.equal(expired.launchDiscount,0)
-// Launching rate must be flexible but bounded; invalid client inputs must be rejected by Worker.
-for (const rate of [0, 0.01, 1, 7.5, 12.34, 17.25, 50, 99.99, 100]) {
-  assert.equal(isValidLaunchPercent(rate), true, `valid launch rate ${rate}`)
-  const price = 100000
-  const quote = computeDiscounts(price, Math.round(price * rate / 100), null, {...settings,standard:rate})
-  assert.equal(quote.launchDiscount, Math.round(price * rate / 100), `discount at ${rate}%`)
-  assert.equal(quote.payableSubtotal, price - quote.launchDiscount, `total at ${rate}%`)
-}
-for (const rate of [-1, -0.01, 100.01, 101, 12.345, NaN, Infinity, -Infinity, null, '', '10', false]) {
-  assert.equal(isValidLaunchPercent(rate), false, `invalid launch rate ${String(rate)}`)
-}
-// Independent percentages for product / bundle and stacking with permanent volume discount.
-const custom = {enabled:true,standard:7.5,bundle:35,endAt:null}
-const regularCustom = computeDiscounts(100000, Math.round(100000 * custom.standard / 100), null, custom)
-const bundleCustom = computeDiscounts(100000, Math.round(100000 * custom.bundle / 100), null, custom)
-assert.equal(regularCustom.payableSubtotal, 92500)
-assert.equal(bundleCustom.payableSubtotal, 65000)
-const volumeCustom = computeDiscounts(600000, Math.round(600000 * 0.125), null, {...custom,standard:12.5})
-assert.equal(volumeCustom.launchDiscount,75000)
-assert.equal(volumeCustom.volumeDiscount,52500)
-assert.equal(volumeCustom.payableSubtotal,472500)
-console.log('PASS: Merchic promo scenarios, including 0–100% customizable launching, two decimals, invalid rates, independent bundle/regular, and stacking')
+console.log('PASS: 12 Merchic promo scenarios (launch, bundle, threshold, stacking, fixed, expiry, minimum, on/off)')

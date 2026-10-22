@@ -106,6 +106,7 @@ export function orderExportData(orders: Order[]) {
       Fulfillment: order.fulfillment_type,
       Subtotal: Number(order.subtotal || 0),
       DiskonLaunching: Number(order.launch_discount || 0),
+      DiskonItem: Number(order.item_discount || 0),
       DiskonBelanjaBesar: Number(order.volume_discount || 0),
       KodePromo: order.promo_code || '',
       DiskonKodePromo: Number(order.promo_discount || 0),
