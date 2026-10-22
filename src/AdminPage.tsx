@@ -5,7 +5,6 @@ import { adminApi } from './api'
 import { readableApiError } from './apiError'
 import { resolveProductImage } from './colorImages'
 import type { Order, PaymentMethod, PickupLocation, Product, ProductBundle, LaunchSettings, PromoCode, AuditLog } from './types'
-import { itemUnitDiscount } from '../shared/productDiscount'
 import { dt, rupiah, slugify, statusLabel } from './utils'
 import { itemVariantText, orderExportData, orderFulfillment, shippingAddressDetails, sortedOrderItems } from './orderAdminData'
 
@@ -95,8 +94,11 @@ function toInputDate(value: string | null | undefined) {
   const d = new Date(value)
   return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().slice(0,16)
 }
+function isValidLaunchPercent(value: number) {
+  return Number.isFinite(value) && value >= 0 && value <= 100 && Math.abs(value * 100 - Math.round(value * 100)) < 1e-8
+}
 function PromotionsAdmin() {
-  const [settings, setSettings] = useState<LaunchSettings>({ name: 'Diskon launching', enabled:true, standard:15, bundle:20, endAt:null })
+  const [settings, setSettings] = useState<LaunchSettings>({ enabled:true, standard:15, bundle:20, endAt:null })
   const [codes, setCodes] = useState<PromoCode[]>([])
   const [edit, setEdit] = useState<Partial<PromoCode>>({...emptyPromo})
   const [error, setError] = useState('')
@@ -104,7 +106,17 @@ function PromotionsAdmin() {
   const [busy, setBusy] = useState(false)
   async function load() { try { const result = await adminApi.promotions(); setSettings(result.settings); setCodes(result.codes) } catch(e) { setError((e as Error).message) } }
   useEffect(()=>{void load()},[])
-  async function saveLaunch() { setBusy(true);setError('');setSuccess('');try{setSettings(await adminApi.saveLaunch(settings));setSuccess('Pengaturan promo berhasil disimpan. Diskon 10% di atas Rp500.000 tetap berlaku permanen.')}catch(e){setError((e as Error).message)}finally{setBusy(false)} }
+  async function saveLaunch() {
+    setError(''); setSuccess('')
+    if (!isValidLaunchPercent(settings.standard) || !isValidLaunchPercent(settings.bundle)) {
+      setError('Diskon produk biasa dan paket harus antara 0–100% (maksimal 2 angka desimal).')
+      return
+    }
+    setBusy(true)
+    try { setSettings(await adminApi.saveLaunch(settings)); setSuccess('Diskon launching berhasil disimpan. Diskon tambahan 10% untuk belanja di atas Rp500.000 tetap berlaku.') }
+    catch(e) { setError((e as Error).message) }
+    finally { setBusy(false) }
+  }
   async function saveCode() {
     setBusy(true);setError('');setSuccess('')
     try { await adminApi.savePromoCode({ ...edit, code: (edit.code||'').trim().toUpperCase(), starts_at: edit.starts_at ? new Date(edit.starts_at).toISOString() : null, ends_at: edit.ends_at ? new Date(edit.ends_at).toISOString() : null });setEdit({...emptyPromo}); await load();setSuccess('Kode promo berhasil disimpan.') } catch(e){setError((e as Error).message)}finally{setBusy(false)}
@@ -113,9 +125,9 @@ function PromotionsAdmin() {
   return <>
     <AdminHeader title="Promo & diskon"/>
     {error && <div className="alert error" role="alert">{error}</div>}{success && <div className="alert success">{success}</div>}
-    <div className="panel merchic-admin-panel"><span className="eyebrow">Diskon otomatis</span><h2>{settings.name || 'Diskon launching'} · 15–20%</h2><p className="muted">Produk reguler default 15%, paket default 20%. Anda dapat mengubah keduanya antara 15–20%, mengatur batas waktu, atau menonaktifkan promo. Diskon otomatis tambahan 10% untuk subtotal sebelum diskon lebih dari Rp500.000 berlaku selamanya.</p>
-      <div className="form-grid two"><label className="span-2">Nama promo yang tampil ke pembeli<input type="text" maxLength={80} minLength={3} value={settings.name} placeholder="Contoh: Promo Hari Guru" onChange={e=>setSettings({...settings,name:e.target.value})}/><small>Hanya mengganti judul promo, bukan mekanisme diskon.</small></label><label>Diskon produk biasa (%)<input type="number" min="15" max="20" step="1" value={settings.standard} onChange={e=>setSettings({...settings,standard:Number(e.target.value)})}/></label><label>Diskon paket (%)<input type="number" min="15" max="20" step="1" value={settings.bundle} onChange={e=>setSettings({...settings,bundle:Number(e.target.value)})}/></label><label>Batas akhir promo (opsional)<input type="datetime-local" value={toInputDate(settings.endAt)} onChange={e=>setSettings({...settings,endAt:e.target.value?new Date(e.target.value).toISOString():null})}/></label><label className="promo-enabled"><input type="checkbox" checked={settings.enabled} onChange={e=>setSettings({...settings,enabled:e.target.checked})}/> Aktifkan promo ini</label></div>
-      <div className="button-row"><button className="primary" disabled={busy} onClick={saveLaunch}>Simpan pengaturan promo</button></div>
+    <div className="panel merchic-admin-panel"><span className="eyebrow">Diskon otomatis</span><h2>Diskon launching fleksibel</h2><p className="muted">Admin bebas mengatur diskon produk biasa dan paket secara terpisah, masing-masing 0–100% (maksimal 2 angka desimal). Nilai 0% berarti tanpa potongan untuk kategori tersebut. Anda juga dapat mengatur batas waktu atau menonaktifkan promo. Diskon otomatis tambahan 10% untuk subtotal sebelum diskon lebih dari Rp500.000 tetap berlaku.</p>
+      <div className="form-grid two"><label>Diskon produk biasa (%)<input type="number" min="0" max="100" step="0.01" value={Number.isNaN(settings.standard) ? '' : settings.standard} onChange={e=>setSettings({...settings,standard:e.target.value === '' ? NaN : Number(e.target.value)})}/></label><label>Diskon paket (%)<input type="number" min="0" max="100" step="0.01" value={Number.isNaN(settings.bundle) ? '' : settings.bundle} onChange={e=>setSettings({...settings,bundle:e.target.value === '' ? NaN : Number(e.target.value)})}/></label><label>Batas akhir launching (opsional)<input type="datetime-local" value={toInputDate(settings.endAt)} onChange={e=>setSettings({...settings,endAt:e.target.value?new Date(e.target.value).toISOString():null})}/></label><label className="promo-enabled"><input type="checkbox" checked={settings.enabled} onChange={e=>setSettings({...settings,enabled:e.target.checked})}/> Aktifkan promo launching</label></div>
+      <div className="button-row"><button className="primary" disabled={busy} onClick={saveLaunch}>Simpan diskon launching</button></div>
     </div>
     <div className="panel merchic-admin-panel"><span className="eyebrow">Kode promo tambahan</span><h2>{edit.id?'Edit kode promo':'Buat kode promo'}</h2><p className="muted">Kode promo tetap dapat dipakai bersamaan dengan kedua diskon otomatis selama memenuhi syarat.</p>
       <div className="form-grid two"><label>Kode promo<input maxLength={40} value={edit.code||''} onChange={e=>setEdit({...edit,code:e.target.value.toUpperCase()})} placeholder="Contoh: MERCHIC10"/></label><label>Deskripsi<input value={edit.description||''} onChange={e=>setEdit({...edit,description:e.target.value})}/></label><label>Jenis diskon<select value={edit.discount_type||'percent'} onChange={e=>setEdit({...edit,discount_type:e.target.value as 'percent'|'fixed'})}><option value="percent">Persentase (%)</option><option value="fixed">Nominal (Rp)</option></select></label><label>Nilai diskon<input type="number" min="1" step="1" value={edit.amount??10} onChange={e=>setEdit({...edit,amount:Number(e.target.value)})}/></label><label>Minimal subtotal pembelian (Rp)<input type="number" min="0" step="1" value={edit.min_order_amount??0} onChange={e=>setEdit({...edit,min_order_amount:Number(e.target.value)})}/></label><label className="promo-enabled"><input type="checkbox" checked={edit.active!==false} onChange={e=>setEdit({...edit,active:e.target.checked})}/> Kode aktif</label><label>Berlaku mulai (opsional)<input type="datetime-local" value={toInputDate(edit.starts_at)} onChange={e=>setEdit({...edit,starts_at:e.target.value||null})}/></label><label>Berlaku sampai (opsional)<input type="datetime-local" value={toInputDate(edit.ends_at)} onChange={e=>setEdit({...edit,ends_at:e.target.value||null})}/></label></div>
@@ -550,7 +562,7 @@ function ProductsAdmin() {
 
   const filtered = items.filter(product => `${product.name} ${product.slug} ${product.colors?.join(' ')} ${product.sizes?.join(' ')}`.toLocaleLowerCase('id-ID').includes(search.toLocaleLowerCase('id-ID')))
   return <>
-    <AdminHeader title="Produk" actions={<div className="bundle-admin-actions"><button className="secondary" onClick={() => { setNewBundleRequest(n => n + 1); setShowBundleEditor(true); setEdit(null) }}><Plus size={17}/> Tambah paket</button><button className="primary" onClick={() => { setShowBundleEditor(false); startEditing({ name: '', slug: '', description: '', base_price: 0, item_discount_enabled: false, item_discount_type: 'percent', item_discount_amount: 0, weight_grams: 50, colors: [], sizes: [], active: true, featured: false, specifications: {}, product_type: 'standard' }) }}><Plus size={17}/> Tambah produk</button></div>}/>
+    <AdminHeader title="Produk" actions={<div className="bundle-admin-actions"><button className="secondary" onClick={() => { setNewBundleRequest(n => n + 1); setShowBundleEditor(true); setEdit(null) }}><Plus size={17}/> Tambah paket</button><button className="primary" onClick={() => { setShowBundleEditor(false); startEditing({ name: '', slug: '', description: '', base_price: 0, weight_grams: 50, colors: [], sizes: [], active: true, featured: false, specifications: {}, product_type: 'standard' }) }}><Plus size={17}/> Tambah produk</button></div>}/>
     <BundlesAdmin products={items} showEditor={showBundleEditor} setShowEditor={setShowBundleEditor} newRequest={newBundleRequest}/>
     {error && <div className="alert error" role="alert">{error}</div>}
     <div className="product-upload-diagnostic">
@@ -574,15 +586,6 @@ function ProductsAdmin() {
           <label>Berat (gram)<input type="number" min="0" value={edit.weight_grams ?? 0} onChange={e => setEdit({ ...edit, weight_grams: Number(e.target.value) })}/></label>
         </div>
       </div>
-      <div className="item-discount-editor">
-        <div className="item-discount-heading"><div><h3>Diskon khusus produk</h3><p className="muted">Berlaku hanya untuk produk ini saat dibeli satuan, termasuk varian XXL+. Menggantikan diskon promo otomatis produk biasa (tidak dijumlahkan dua kali). Tidak berlaku untuk item di dalam paket.</p></div></div>
-        <label className="promo-enabled"><input type="checkbox" checked={!!edit.item_discount_enabled} onChange={e => setEdit({ ...edit, item_discount_enabled: e.target.checked, item_discount_type: edit.item_discount_type || 'percent', item_discount_amount: e.target.checked && !edit.item_discount_amount ? 10 : edit.item_discount_amount ?? 0 })}/> Aktifkan diskon khusus untuk produk ini</label>
-        {edit.item_discount_enabled && <div className="form-grid two">
-          <label>Jenis diskon<select value={edit.item_discount_type || 'percent'} onChange={e => setEdit({ ...edit, item_discount_type: e.target.value as Product['item_discount_type'], item_discount_amount: e.target.value === 'percent' && Number(edit.item_discount_amount) > 100 ? 10 : edit.item_discount_amount ?? 10 })}><option value="percent">Persentase (%)</option><option value="fixed">Nominal per unit (Rp)</option></select></label>
-          <label>Besaran diskon<input type="number" min={1} max={edit.item_discount_type === 'fixed' ? 999999999999 : 100} step={1} value={edit.item_discount_amount ?? 10} onChange={e => setEdit({ ...edit, item_discount_amount: Number(e.target.value) })}/></label>
-          <div className="item-discount-preview span-2"><span>Contoh harga (sebelum tambahan XXL)</span><strong>{rupiah(Math.max(0, Number(edit.base_price || 0) - itemUnitDiscount(edit, Number(edit.base_price || 0))))}</strong><small>Harga dasar {rupiah(Number(edit.base_price || 0))}. Diskon dihitung dari harga dengan tambahan ukuran jika pembeli memilih XXL+.</small></div>
-        </div>}
-      </div>
       {edit.product_type !== 'emoney_card' && <div className="product-editor-section">
         <h3>Varian produk</h3>
         <div className="variant-grid">
@@ -592,7 +595,6 @@ function ProductsAdmin() {
           }} placeholder="Contoh: Biru"/>
           <VariantEditor label="Ukuran" values={edit.sizes || []} draft={sizeDraft} onDraftChange={setSizeDraft} onChange={sizes => setEdit(prev => prev ? { ...prev, sizes } : prev)} placeholder="Contoh: All Size"/>
         </div>
-        <p className="muted">Harga di atas adalah harga dasar. Untuk pakaian dengan ukuran XXL, 2XL, XXXL, 3XL, dan seterusnya, sistem otomatis menambahkan Rp15.000 per unit (termasuk dalam paket) sebelum diskon. Tidak perlu memasukkan biaya tambahan ke harga dasar.</p>
         <div className="color-photo-editor">
           <div className="color-photo-heading"><h3>Foto untuk setiap warna</h3><span>1 warna = 1 foto</span></div>
           <p>Tambahkan warna terlebih dahulu. Unggah foto sesuai warna sehingga gambar pada katalog dan keranjang berubah otomatis ketika pembeli memilih warna lain.</p>
@@ -646,7 +648,7 @@ function ProductsAdmin() {
       <div className="admin-product-info">
         <div className="admin-product-flags"><span className={`admin-product-status ${product.active ? 'is-active' : 'is-inactive'}`}>{product.active ? 'Aktif' : 'Nonaktif'}</span><span className="admin-product-type">{product.product_type === 'emoney_card' ? 'E-money custom' : 'Merchandise'}</span></div>
         <h3 title={product.name}>{product.name}</h3>
-        <strong className="admin-product-price">{rupiah(product.base_price)}</strong>{product.item_discount_enabled && <span className="admin-item-discount-label">Diskon khusus: {product.item_discount_type === 'fixed' ? rupiah(product.item_discount_amount) : `${product.item_discount_amount}%`}</span>}
+        <strong className="admin-product-price">{rupiah(product.base_price)}</strong>
         <div className="admin-product-weight">{product.weight_grams} gram</div>
         {product.product_type !== 'emoney_card' && <div className="admin-product-variants">
           <div><b>Warna</b><span>{product.colors?.length ? product.colors.join(', ') : '—'}{product.colors?.length ? ` · ${product.colors.filter(color => !!product.color_images?.[color]).length}/${product.colors.length} foto` : ''}</span></div>
